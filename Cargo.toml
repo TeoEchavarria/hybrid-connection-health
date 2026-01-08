@@ -4,3 +4,16 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+futures = "0.3"
+async-std = { version = "1.12", features = ["attributes"] }
+
+libp2p = { version = "0.51.4", default-features = false, features = [
+  "tcp",
+  "dns",
+  "async-std",
+  "websocket",
+  "noise",
+  "yamux",
+  "mplex",
+  "mdns",
+] }
