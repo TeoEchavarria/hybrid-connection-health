@@ -2,7 +2,8 @@ mod config;
 mod p2p;
 
 use anyhow::Result;
-use p2p::swarm::{build_swarm, run_swarm};
+use config::Commands;
+use p2p::swarm::{build_swarm, run_swarm, run_test_submission};
 use tracing::info;
 use tokio::signal;
 
@@ -16,21 +17,46 @@ async fn main() -> Result<()> {
         .expect("setting default subscriber failed");
 
     // Parse CLI args
-    let config = config::parse_args();
-    info!("Starting P2P Node with Role: {}", config.role);
+    let (cli_args, config) = config::parse_args();
 
-    // Build Swarm
-    let swarm = build_swarm(&config).await?;
-
-    // Run Swarm loop with graceful shutdown
-    tokio::select! {
-        res = run_swarm(swarm, config) => {
-            if let Err(e) = res {
-                tracing::error!("Swarm error: {:?}", e);
-            }
+    match cli_args.command {
+        Some(Commands::PeerId) => {
+            let peer_id = libp2p::PeerId::from(config.identity_keypair.public());
+            println!("{}", peer_id);
+            return Ok(());
         }
-        _ = signal::ctrl_c() => {
-            info!("Received Ctrl+C, shutting down...");
+        Some(Commands::TestSubmit { listen, dial, timeout_secs }) => {
+            info!("Starting One-Shot Test: Submit Op -> Wait Ack");
+            // Build swarm with persistent identity (from config) but override listen addr
+            // We use the same config struct but maybe we should override listen in it?
+            // Actually build_swarm uses config.listen.
+            let mut test_config = config.clone();
+            test_config.listen = listen;
+            // dial is passed to run_test_submission, not used in build_swarm for initial dial here (though it could be)
+            
+            let swarm = build_swarm(&test_config).await?;
+            run_test_submission(swarm, dial, timeout_secs).await?;
+            info!("Test completed successfully.");
+            return Ok(());
+        }
+        _ => {
+            // Run mode (Default or Explicit)
+            info!("Starting P2P Node with Role: {}", config.role);
+            
+            // Build Swarm
+            let swarm = build_swarm(&config).await?;
+
+            // Run Swarm loop with graceful shutdown
+            tokio::select! {
+                res = run_swarm(swarm, config) => {
+                    if let Err(e) = res {
+                        tracing::error!("Swarm error: {:?}", e);
+                    }
+                }
+                _ = signal::ctrl_c() => {
+                    info!("Received Ctrl+C, shutting down...");
+                }
+            }
         }
     }
 

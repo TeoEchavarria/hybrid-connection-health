@@ -1,0 +1,79 @@
+services:
+  gateway:
+    build:
+      context: .
+    container_name: p2p_gateway
+    command: >
+      sh -lc '
+        mkdir -p /data /shared;
+        # imprime peer_id a un archivo compartido (lo usaremos luego)
+        PEER_ID=$$(agent peer-id --identity-file /data/id.key);
+        echo "$$PEER_ID" > /shared/gateway_peer_id;
+        echo "[gateway] peer_id=$$PEER_ID";
+        exec agent --role gateway --identity-file /data/id.key --listen /ip4/0.0.0.0/tcp/4001 run
+      '
+    volumes:
+      - gateway_data:/data
+      - shared:/shared
+
+  client1:
+    build:
+      context: .
+    container_name: p2p_client1
+    command: >
+      sh -lc '
+        mkdir -p /data /shared;
+        # espera a que el gateway publique su peer_id
+        until [ -f /shared/gateway_peer_id ]; do echo "[client1] waiting peer_id"; sleep 1; done;
+        PEER_ID=$$(cat /shared/gateway_peer_id);
+        echo "[client1] gateway_peer_id=$$PEER_ID";
+        exec agent --role client --identity-file /data/id.key --listen /ip4/0.0.0.0/tcp/4002 --dial /dns4/gateway/tcp/4001/p2p/$$PEER_ID run
+      '
+    depends_on:
+      - gateway
+    volumes:
+      - client1_data:/data
+      - shared:/shared
+
+  client2:
+    build:
+      context: .
+    container_name: p2p_client2
+    command: >
+      sh -lc '
+        mkdir -p /data /shared;
+        until [ -f /shared/gateway_peer_id ]; do echo "[client2] waiting peer_id"; sleep 1; done;
+        PEER_ID=$$(cat /shared/gateway_peer_id);
+        echo "[client2] gateway_peer_id=$$PEER_ID";
+        exec agent --role client --identity-file /data/id.key --listen /ip4/0.0.0.0/tcp/4003 --dial /dns4/gateway/tcp/4001/p2p/$$PEER_ID run
+      '
+    depends_on:
+      - gateway
+    volumes:
+      - client2_data:/data
+      - shared:/shared
+
+  tester:
+    build:
+      context: .
+    container_name: p2p_tester
+    command: >
+      sh -lc '
+        mkdir -p /data /shared;
+        until [ -f /shared/gateway_peer_id ]; do echo "[tester] waiting peer_id"; sleep 1; done;
+        PEER_ID=$$(cat /shared/gateway_peer_id);
+        echo "[tester] testing dial to gateway peer_id=$$PEER_ID";
+        agent --identity-file /data/id.key --listen /ip4/0.0.0.0/tcp/0 test-submit --dial /dns4/gateway/tcp/4001/p2p/$$PEER_ID --timeout-secs 30
+      '
+    depends_on:
+      - gateway
+    volumes:
+      - tester_data:/data
+      - shared:/shared
+
+volumes:
+  gateway_data:
+  client1_data:
+  client2_data:
+  tester_data:
+  shared:

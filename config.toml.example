@@ -1,0 +1,13 @@
+# Example Configuration for Hybrid Connection Health
+
+# Role: "client" or "gateway"
+role = "client"
+
+# Listen address
+listen = "/ip4/0.0.0.0/tcp/0"
+
+# List of peers to connect to automatically
+peers = [
+    # Replace with the actual address of the other device
+    # "/ip4/192.168.1.50/tcp/35701"
+]
