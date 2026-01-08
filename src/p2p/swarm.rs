@@ -33,7 +33,10 @@ pub async fn build_swarm(config: &Config) -> Result<Swarm<NodeBehaviour>> {
         .boxed();
 
     // mDNS
-    let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), peer_id)?;
+    let mut mdns_config = mdns::Config::default();
+    // Use a shorter query interval to speed up discovery in demos
+    mdns_config.query_interval = std::time::Duration::from_secs(5);
+    let mdns = mdns::tokio::Behaviour::new(mdns_config, peer_id)?;
 
     // RequestResponse
     let protocols = std::iter::once((OpProtocol, ProtocolSupport::Full));
@@ -72,27 +75,34 @@ pub async fn run_swarm(mut swarm: Swarm<NodeBehaviour>, config: Config) -> Resul
             SwarmEvent::NewListenAddr { address, .. } => {
                 info!("Listening on {:?}", address);
             }
+            SwarmEvent::ConnectionEstablished { peer_id, .. } => {
+                info!("Connection established with {}", peer_id);
+                
+                if let Role::Client = config.role {
+                     let op = Op {
+                         op_id: Uuid::new_v4().to_string(),
+                         actor_id: swarm.local_peer_id().to_string(),
+                         kind: "UpsertNote".into(),
+                         entity: "note:123".into(),
+                         payload_json: "{}".into(),
+                         created_at_ms: 1234567890,
+                     };
+                     info!("Sending OpSubmit to connected peer {}", peer_id);
+                     swarm.behaviour_mut().request_response.send_request(&peer_id, Msg::OpSubmit { op });
+                }
+            }
             SwarmEvent::Behaviour(NodeBehaviourEvent::Mdns(mdns::Event::Discovered(list))) => {
                 for (peer_id, multiaddr) in list {
                     info!("mDNS Discovered: {} at {}", peer_id, multiaddr);
                     
-                    // Add address to request_response so we can dial it if needed
-                    swarm.behaviour_mut().request_response.add_address(&peer_id, multiaddr.clone());
+                    // Add address to swarm so we can dial it if needed
+                    swarm.add_peer_address(peer_id, multiaddr.clone());
 
-                    // Demo logic: Client sends OpSubmit to Gateway msg
+                    // If we are client, ensure we are connected
                     if let Role::Client = config.role {
-                         // Naive check: send generic msg to any discovered peer
-                         // In real app, we'd verify if it's actually a gateway
-                         let op = Op {
-                             op_id: Uuid::new_v4().to_string(),
-                             actor_id: swarm.local_peer_id().to_string(),
-                             kind: "UpsertNote".into(),
-                             entity: "note:123".into(),
-                             payload_json: "{}".into(),
-                             created_at_ms: 1234567890,
-                         };
-                         info!("Sending OpSubmit to discovered peer {}", peer_id);
-                         swarm.behaviour_mut().request_response.send_request(&peer_id, Msg::OpSubmit { op });
+                         if !swarm.is_connected(&peer_id) {
+                              let _ = swarm.dial(peer_id);
+                         }
                     }
                 }
             }
