@@ -1,54 +1,36 @@
 mod config;
-mod network;
+mod p2p;
 
-use crate::config::{AgentCmd, Cli, Commands};
-use crate::network::swarm::start_swarm;
-use clap::Parser;
+use anyhow::Result;
+use p2p::swarm::{build_swarm, run_swarm};
+use tracing::info;
+use tokio::signal;
 
-#[async_std::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let cli = Cli::parse();
-    let config = cli.clone().into_config();
+#[tokio::main]
+async fn main() -> Result<()> {
+    // Initialize logging
+    let subscriber = tracing_subscriber::FmtSubscriber::builder()
+        .with_max_level(tracing::Level::INFO)
+        .finish();
+    tracing::subscriber::set_global_default(subscriber)
+        .expect("setting default subscriber failed");
 
-    println!("Hybrid Connection Health Agent");
-    println!("Config: {:?}", config);
+    // Parse CLI args
+    let config = config::parse_args();
+    info!("Starting P2P Node with Role: {}", config.role);
 
-    // Si viene subcomando "agent", ejecuta y sale.
-    if let Some(cmd) = cli.command {
-        match cmd {
-            Commands::Agent { cmd: agent_cmd } => {
-                run_agent(agent_cmd, &config.db_path)?;
-                return Ok(());
+    // Build Swarm
+    let swarm = build_swarm(&config).await?;
+
+    // Run Swarm loop with graceful shutdown
+    tokio::select! {
+        res = run_swarm(swarm, config) => {
+            if let Err(e) = res {
+                tracing::error!("Swarm error: {:?}", e);
             }
         }
-    }
-
-    // Default behavior (como antes)
-    start_swarm(&config).await?;
-    Ok(())
-}
-
-fn run_agent(cmd: AgentCmd, db_path: &str) -> Result<(), Box<dyn std::error::Error>> {
-    use crate::network::outbox::{Op, ensure_db, outbox_insert, outbox_list_pending};
-
-    let conn = rusqlite::Connection::open(db_path)?;
-    ensure_db(&conn)?;
-
-    match cmd {
-        AgentCmd::OpCreate { actor_id } => {
-            let op = Op::new_fake_upsert_note(&actor_id);
-            outbox_insert(&conn, &op)?;
-            println!("OK inserted op_id={} kind={}", op.op_id, op.kind);
-        }
-        AgentCmd::OpList { limit } => {
-            let ops = outbox_list_pending(&conn, limit)?;
-            println!("pending_count={}", ops.len());
-            for op in ops {
-                println!(
-                    "- op_id={} actor={} kind={} entity={} created_at_ms={} status={:?}",
-                    op.op_id, op.actor_id, op.kind, op.entity, op.created_at_ms, op.status
-                );
-            }
+        _ = signal::ctrl_c() => {
+            info!("Received Ctrl+C, shutting down...");
         }
     }
 

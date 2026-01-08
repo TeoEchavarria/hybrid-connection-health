@@ -3,24 +3,26 @@ name = "hybrid-connection-health"
 version = "0.1.0"
 edition = "2024"
 
+
 [dependencies]
-rusqlite = { version = "0.31", features = ["bundled"] }
-futures = "0.3"
-async-std = { version = "1.12", features = ["attributes"] }
+tokio = { version = "1.49.0", features = ["macros", "rt-multi-thread", "signal"] }
+clap = { version = "4.5.54", features = ["derive"] }
 
-clap = { version = "4.5", features = ["derive"] }
-
-uuid = { version = "1.10", features = ["v4"] }
-serde_json = "1.0"
-serde = { version = "1.0", features = ["derive"] }
-
-libp2p = { version = "0.51.4", default-features = false, features = [
+libp2p = { version = "0.56.0", features = [
+  "tokio",
+  "mdns",
+  "request-response",
   "tcp",
-  "dns",
-  "async-std",
-  "websocket",
   "noise",
   "yamux",
-  "mplex",
-  "mdns",
+  "cbor" # Needed for basic request-response codec if we were using cbor, but we're doing custom json. Keeping minimum as requested.
 ] }
+
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+uuid = { version = "1.19.0", features = ["v4"] }
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+async-trait = "0.1"
+futures = "0.3"
