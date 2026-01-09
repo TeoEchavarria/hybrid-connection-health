@@ -7,22 +7,51 @@ use anyhow::{Context, Result};
 use futures::StreamExt;
 use libp2p::{
     core::upgrade,
-    identity,
+    identify, kad, ping,
     mdns,
     noise,
     request_response::{self, ProtocolSupport},
-    swarm::{SwarmEvent},
+    swarm::SwarmEvent,
     tcp,
     yamux,
-    PeerId, Swarm, Transport,
+    Multiaddr, PeerId, Swarm, Transport,
 };
-use tracing::{info, error};
+use std::collections::{HashMap, HashSet};
+use std::time::{Duration, Instant};
+use tracing::{info, error, warn};
 use uuid::Uuid;
+
+/// Tracks dial attempts to prevent dial loops
+struct DialState {
+    last_dial: HashMap<PeerId, Instant>,
+    cooldown: Duration,
+    bootstrap_attempted: bool,
+}
+
+impl DialState {
+    fn new() -> Self {
+        Self {
+            last_dial: HashMap::new(),
+            cooldown: Duration::from_secs(30),
+            bootstrap_attempted: false,
+        }
+    }
+    
+    fn can_dial(&mut self, peer_id: &PeerId) -> bool {
+        if let Some(last) = self.last_dial.get(peer_id) {
+            if last.elapsed() < self.cooldown {
+                return false;
+            }
+        }
+        self.last_dial.insert(*peer_id, Instant::now());
+        true
+    }
+}
 
 pub async fn build_swarm(config: &Config) -> Result<Swarm<NodeBehaviour>> {
     let id_keys = config.identity_keypair.clone();
     let peer_id = PeerId::from(id_keys.public());
-    info!("Local PeerId: {}", peer_id);
+    info!("🆔 Local PeerId: {}", peer_id);
 
     let tcp_transport = tcp::tokio::Transport::new(tcp::Config::default().nodelay(true));
     
@@ -32,11 +61,49 @@ pub async fn build_swarm(config: &Config) -> Result<Swarm<NodeBehaviour>> {
         .multiplex(yamux::Config::default())
         .boxed();
 
-    // mDNS
-    let mut mdns_config = mdns::Config::default();
-    // Use a shorter query interval to speed up discovery in demos
-    mdns_config.query_interval = std::time::Duration::from_secs(5);
-    let mdns = mdns::tokio::Behaviour::new(mdns_config, peer_id)?;
+    // Identify behaviour
+    let identify = identify::Behaviour::new(identify::Config::new(
+        "/hybrid-connection-health/1.0.0".to_string(),
+        id_keys.public(),
+    ));
+
+    // mDNS for LAN discovery
+    let mdns = if config.enable_mdns {
+        let mut mdns_config = mdns::Config::default();
+        mdns_config.query_interval = Duration::from_secs(5);
+        mdns::tokio::Behaviour::new(mdns_config, peer_id)?
+    } else {
+        // Create disabled mDNS (will still be in the behaviour, just won't discover)
+        warn!("mDNS disabled in configuration");
+        let mdns_config = mdns::Config::default();
+        mdns::tokio::Behaviour::new(mdns_config, peer_id)?
+    };
+
+    // Kademlia DHT
+    let kad = if config.enable_kad {
+        let mut kad_config = kad::Config::default();
+        kad_config.set_query_timeout(Duration::from_secs(60));
+        let store = kad::store::MemoryStore::new(peer_id);
+        let mut kad_behaviour = kad::Behaviour::with_config(peer_id, store, kad_config);
+        
+        // Set Kademlia mode based on role
+        if matches!(config.role, Role::Gateway) {
+            kad_behaviour.set_mode(Some(kad::Mode::Server));
+            info!("📡 Kademlia mode: Server (Gateway)");
+        } else {
+            kad_behaviour.set_mode(Some(kad::Mode::Client));
+            info!("📡 Kademlia mode: Client");
+        }
+        
+        kad_behaviour
+    } else {
+        warn!("Kademlia DHT disabled in configuration");
+        let store = kad::store::MemoryStore::new(peer_id);
+        kad::Behaviour::new(peer_id, store)
+    };
+
+    // Ping behaviour
+    let ping = ping::Behaviour::new(ping::Config::new());
 
     // RequestResponse
     let protocols = std::iter::once((OpProtocol, ProtocolSupport::Full));
@@ -46,7 +113,10 @@ pub async fn build_swarm(config: &Config) -> Result<Swarm<NodeBehaviour>> {
     );
 
     let behaviour = NodeBehaviour {
+        identify,
         mdns,
+        kad,
+        ping,
         request_response,
     };
 
@@ -54,16 +124,39 @@ pub async fn build_swarm(config: &Config) -> Result<Swarm<NodeBehaviour>> {
         transport,
         behaviour,
         peer_id,
-        libp2p::swarm::Config::with_tokio_executor(),
+        libp2p::swarm::Config::with_tokio_executor()
+            .with_idle_connection_timeout(Duration::from_secs(300)), // Keep connections alive for 5 minutes
     );
 
     swarm.listen_on(config.listen.parse()?)?;
 
-    // Optional manual dial from CLI
+    // Dial bootstrap peers for DHT
+    if config.enable_kad {
+        for bootstrap_addr in &config.bootstrap_peers {
+            match bootstrap_addr.parse::<Multiaddr>() {
+                Ok(addr) => {
+                    info!("🔗 Dialing bootstrap peer: {}", bootstrap_addr);
+                    if let Err(e) = swarm.dial(addr.clone()) {
+                        error!("Failed to dial bootstrap peer {}: {:?}", bootstrap_addr, e);
+                    }
+                    
+                    // Extract peer ID and add to Kademlia
+                    if let Some(libp2p::multiaddr::Protocol::P2p(peer_id_hash)) = 
+                        addr.iter().find(|p| matches!(p, libp2p::multiaddr::Protocol::P2p(_))) 
+                    {
+                        swarm.behaviour_mut().kad.add_address(&peer_id_hash, addr);
+                    }
+                }
+                Err(e) => error!("Invalid bootstrap multiaddr '{}': {:?}", bootstrap_addr, e),
+            }
+        }
+    }
+
+    // Optional manual dial from CLI (legacy support)
     if let Some(dial_addr) = &config.dial {
-        match dial_addr.parse::<libp2p::Multiaddr>() {
+        match dial_addr.parse::<Multiaddr>() {
             Ok(addr) => {
-                info!("Dialing manual peer from CLI: {}", dial_addr);
+                info!("🔗 Dialing manual peer from CLI: {}", dial_addr);
                 if let Err(e) = swarm.dial(addr) {
                     error!("Failed to dial CLI peer: {:?}", e);
                 }
@@ -72,11 +165,11 @@ pub async fn build_swarm(config: &Config) -> Result<Swarm<NodeBehaviour>> {
         }
     }
 
-    // Dial peers from config file
+    // Dial peers from config file (legacy support)
     for peer_addr in &config.peers {
-        match peer_addr.parse::<libp2p::Multiaddr>() {
+        match peer_addr.parse::<Multiaddr>() {
             Ok(addr) => {
-                info!("Dialing config peer: {}", peer_addr);
+                info!("🔗 Dialing config peer: {}", peer_addr);
                 if let Err(e) = swarm.dial(addr) {
                     error!("Failed to dial peer {}: {:?}", peer_addr, e);
                 }
@@ -89,102 +182,225 @@ pub async fn build_swarm(config: &Config) -> Result<Swarm<NodeBehaviour>> {
 }
 
 pub async fn run_swarm(mut swarm: Swarm<NodeBehaviour>, config: Config) -> Result<()> {
+    let mut dial_state = DialState::new();
+    let mut discovered_via_mdns: HashSet<PeerId> = HashSet::new();
+    let mut discovered_via_kad: HashSet<PeerId> = HashSet::new();
+    let start_time = Instant::now();
+    let discovery_timeout = Duration::from_secs(config.discovery_timeout_secs);
+    
+    // Health check interval
+    let mut health_check_interval = tokio::time::interval(Duration::from_secs(10));
+    
+    // DHT maintenance interval (random walks)
+    let mut dht_maintenance_interval = tokio::time::interval(Duration::from_secs(60));
+
+    info!("🚀 Starting P2P swarm event loop...");
+
     loop {
-        match swarm.select_next_some().await {
-            SwarmEvent::NewListenAddr { address, .. } => {
-                info!("Listening on {:?}", address);
-            }
-            SwarmEvent::ConnectionEstablished { peer_id, .. } => {
-                info!("Connection established with {}", peer_id);
-                
-                if let Role::Client = config.role {
-                     let op = Op {
-                         op_id: Uuid::new_v4().to_string(),
-                         actor_id: swarm.local_peer_id().to_string(),
-                         kind: "UpsertNote".into(),
-                         entity: "note:123".into(),
-                         payload_json: "{}".into(),
-                         created_at_ms: 1234567890,
-                     };
-                     info!("Sending OpSubmit to connected peer {}", peer_id);
-                     swarm.behaviour_mut().request_response.send_request(&peer_id, Msg::OpSubmit { op });
+        tokio::select! {
+            event = swarm.select_next_some() => {
+                match event {
+                    SwarmEvent::NewListenAddr { address, .. } => {
+                        info!("🎧 Listening on {:?}", address);
+                    }
+                    SwarmEvent::ConnectionEstablished { peer_id, endpoint, .. } => {
+                        info!("✅ Connection established with {} ({})", peer_id, endpoint.get_remote_address());
+                        
+                        // Legacy: send OpSubmit if Client role
+                        if let Role::Client = config.role {
+                             let op = Op {
+                                 op_id: Uuid::new_v4().to_string(),
+                                 actor_id: swarm.local_peer_id().to_string(),
+                                 kind: "UpsertNote".into(),
+                                 entity: "note:123".into(),
+                                 payload_json: "{}".into(),
+                                 created_at_ms: 1234567890,
+                             };
+                             info!("📤 Sending OpSubmit to connected peer {}", peer_id);
+                             swarm.behaviour_mut().request_response.send_request(&peer_id, Msg::OpSubmit { op });
+                        }
+                    }
+                    SwarmEvent::ConnectionClosed { peer_id, cause, .. } => {
+                        warn!("❌ Connection closed with {}: {:?}", peer_id, cause);
+                    }
+                    
+                    // Identify events
+                    SwarmEvent::Behaviour(NodeBehaviourEvent::Identify(event)) => {
+                        match *event {
+                            identify::Event::Received { peer_id, info, .. } => {
+                                info!("🔍 Identified peer {}: {} protocols, observed_addr={:?}", 
+                                      peer_id, info.protocols.len(), info.observed_addr);
+                                
+                                // Add peer's listen addresses to Kademlia and swarm
+                                for addr in info.listen_addrs {
+                                    swarm.behaviour_mut().kad.add_address(&peer_id, addr.clone());
+                                    swarm.add_peer_address(peer_id, addr);
+                                }
+                                
+                                // Trigger Kademlia bootstrap after first successful identify
+                                if config.enable_kad && !dial_state.bootstrap_attempted && start_time.elapsed() > Duration::from_secs(5) {
+                                    info!("🌐 Bootstrapping Kademlia DHT...");
+                                    if let Err(e) = swarm.behaviour_mut().kad.bootstrap() {
+                                        error!("Kademlia bootstrap failed: {:?}", e);
+                                    } else {
+                                        dial_state.bootstrap_attempted = true;
+                                    }
+                                }
+                            }
+                            identify::Event::Sent { .. } => {}
+                            identify::Event::Pushed { .. } => {}
+                            identify::Event::Error { peer_id, error, .. } => {
+                                warn!("Identify error with {}: {:?}", peer_id, error);
+                            }
+                        }
+                    }
+                    
+                    // mDNS events
+                    SwarmEvent::Behaviour(NodeBehaviourEvent::Mdns(mdns::Event::Discovered(list))) => {
+                        for (peer_id, multiaddr) in list {
+                            info!("📡 mDNS Discovered: {} at {}", peer_id, multiaddr);
+                            discovered_via_mdns.insert(peer_id);
+                            
+                            swarm.add_peer_address(peer_id, multiaddr.clone());
+                            if config.enable_kad {
+                                swarm.behaviour_mut().kad.add_address(&peer_id, multiaddr);
+                            }
+                            
+                            // Symmetric auto-dial (no role restriction)
+                            if !swarm.is_connected(&peer_id) && dial_state.can_dial(&peer_id) {
+                                info!("📞 Auto-dialing mDNS peer: {}", peer_id);
+                                let _ = swarm.dial(peer_id);
+                            }
+                        }
+                    }
+                    SwarmEvent::Behaviour(NodeBehaviourEvent::Mdns(mdns::Event::Expired(list))) => {
+                        for (peer_id, _multiaddr) in list {
+                            info!("⏱️  mDNS Expired: {}", peer_id);
+                        }
+                    }
+                    
+                    // Kademlia events
+                    SwarmEvent::Behaviour(NodeBehaviourEvent::Kad(kad::Event::OutboundQueryProgressed { result, .. })) => {
+                        match result {
+                            kad::QueryResult::Bootstrap(Ok(kad::BootstrapOk { peer, .. })) => {
+                                info!("✅ Kademlia bootstrap success with peer: {}", peer);
+                            }
+                            kad::QueryResult::Bootstrap(Err(e)) => {
+                                error!("❌ Kademlia bootstrap error: {:?}", e);
+                            }
+                            kad::QueryResult::GetClosestPeers(Ok(ok)) => {
+                                info!("🔍 Found {} closest peers via Kademlia", ok.peers.len());
+                                for peer_info in &ok.peers {
+                                    discovered_via_kad.insert(peer_info.peer_id);
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    SwarmEvent::Behaviour(NodeBehaviourEvent::Kad(kad::Event::RoutingUpdated { peer, addresses, .. })) => {
+                        info!("🗺️  Kademlia routing updated: {} with {} addresses", peer, addresses.len());
+                        discovered_via_kad.insert(peer);
+                        
+                        // Auto-dial if not connected (symmetric)
+                        if !swarm.is_connected(&peer) && dial_state.can_dial(&peer) {
+                            info!("📞 Auto-dialing peer from Kademlia routing table: {}", peer);
+                            let _ = swarm.dial(peer);
+                        }
+                    }
+                    
+                    // Ping events
+                    SwarmEvent::Behaviour(NodeBehaviourEvent::Ping(ping::Event { peer, result, .. })) => {
+                        match result {
+                            Ok(rtt) => {
+                                // Don't log every ping to reduce noise
+                                if rtt.as_millis() > 500 {
+                                    warn!("🏓 High latency ping from {}: {:?}", peer, rtt);
+                                }
+                            }
+                            Err(e) => {
+                                warn!("Ping failure with {}: {:?}", peer, e);
+                            }
+                        }
+                    }
+                    
+                    // RequestResponse events
+                    SwarmEvent::Behaviour(NodeBehaviourEvent::RequestResponse(request_response::Event::Message { peer, message, .. })) => {
+                       match message {
+                           request_response::Message::Request { request, channel, .. } => {
+                               match request {
+                                   Msg::OpSubmit { op } => {
+                                       info!("📥 Received OpSubmit from {}: {:?}", peer, op);
+                                       
+                                       let ack = Msg::OpAck { 
+                                           op_id: op.op_id, 
+                                           ok: true, 
+                                           msg: "Processed".into() 
+                                       };
+                                       
+                                       info!("📤 Sending OpAck to {}", peer);
+                                       let _ = swarm.behaviour_mut().request_response.send_response(channel, ack);
+                                   },
+                                   _ => info!("Received other request from {}", peer),
+                               }
+                           }
+                           request_response::Message::Response { response, .. } => {
+                                match response {
+                                    Msg::OpAck { op_id, ok, msg } => {
+                                        info!("📬 Received OpAck from {}: op_id={} ok={} msg={}", peer, op_id, ok, msg);
+                                    }
+                                    _ => info!("Received other response from {}", peer),
+                                }
+                           }
+                       }
+                    }
+                    SwarmEvent::Behaviour(NodeBehaviourEvent::RequestResponse(request_response::Event::ResponseSent { .. })) => {
+                        // Response sent confirmation
+                    }
+                    SwarmEvent::Behaviour(NodeBehaviourEvent::RequestResponse(request_response::Event::OutboundFailure { peer, error, .. })) => {
+                        error!("Outbound failure for peer {:?}: {:?}", peer, error);
+                    }
+                    SwarmEvent::Behaviour(NodeBehaviourEvent::RequestResponse(request_response::Event::InboundFailure { peer, error, .. })) => {
+                         error!("Inbound failure for peer {:?}: {:?}", peer, error);
+                    }
+                    // End of primary event handlers
+                    _ => {}
                 }
             }
-            SwarmEvent::Behaviour(NodeBehaviourEvent::Mdns(mdns::Event::Discovered(list))) => {
-                for (peer_id, multiaddr) in list {
-                    info!("mDNS Discovered: {} at {}", peer_id, multiaddr);
+            
+            _ = health_check_interval.tick() => {
+                let connected = swarm.connected_peers().count();
+                let uptime = start_time.elapsed();
+                
+                info!("💚 Discovery health: connected={}, mdns_discovered={}, kad_discovered={}, uptime={:?}",
+                      connected, discovered_via_mdns.len(), discovered_via_kad.len(), uptime);
+                
+                // Warning if no peers discovered
+                if uptime > discovery_timeout && connected == 0 {
+                    error!("⚠️  No peers discovered after {:?}. Check bootstrap_peers config and network connectivity.", discovery_timeout);
                     
-                    // Add address to swarm so we can dial it if needed
-                    swarm.add_peer_address(peer_id, multiaddr.clone());
-
-                    // If we are client, ensure we are connected
-                    if let Role::Client = config.role {
-                         if !swarm.is_connected(&peer_id) {
-                              let _ = swarm.dial(peer_id);
-                         }
+                    if config.bootstrap_peers.is_empty() && !config.enable_mdns {
+                        error!("💡 Hint: Both mDNS and bootstrap_peers are disabled/empty. Enable at least one discovery method.");
                     }
                 }
             }
-            SwarmEvent::Behaviour(NodeBehaviourEvent::Mdns(mdns::Event::Expired(list))) => {
-                for (peer_id, _multiaddr) in list {
-                    info!("mDNS Expired: {}", peer_id);
+            
+            _ = dht_maintenance_interval.tick() => {
+                // Periodic random DHT walk to keep routing table fresh
+                if config.enable_kad && dial_state.bootstrap_attempted {
+                    let random_peer = PeerId::random();
+                    swarm.behaviour_mut().kad.get_closest_peers(random_peer);
                 }
             }
-            SwarmEvent::Behaviour(NodeBehaviourEvent::RequestResponse(request_response::Event::Message { peer, message, .. })) => {
-               match message {
-                   request_response::Message::Request { request, channel, .. } => {
-                       match request {
-                           Msg::OpSubmit { op } => {
-                               info!("Received OpSubmit from {}: {:?}", peer, op);
-                               
-                               // Both Gateway and Client (if peer-to-peer) logic:
-                               // Respond with Ack
-                               let ack = Msg::OpAck { 
-                                   op_id: op.op_id, 
-                                   ok: true, 
-                                   msg: "Processed".into() 
-                               };
-                               
-                               info!("Sending OpAck to {}", peer);
-                               let _ = swarm.behaviour_mut().request_response.send_response(channel, ack);
-                           },
-                           _ => info!("Received other request from {}", peer),
-                       }
-                   }
-                   request_response::Message::Response { response, .. } => {
-                        match response {
-                            Msg::OpAck { op_id, ok, msg } => {
-                                info!("Received OpAck from {}: op_id={} ok={} msg={}", peer, op_id, ok, msg);
-                            }
-                            _ => info!("Received other response from {}", peer),
-                        }
-                   }
-               }
-            }
-             SwarmEvent::Behaviour(NodeBehaviourEvent::RequestResponse(request_response::Event::ResponseSent { peer: _, .. })) => {
-                // Confirm response sent
-                // info!("Response sent to {}", peer);
-            }
-             SwarmEvent::Behaviour(NodeBehaviourEvent::RequestResponse(request_response::Event::OutboundFailure { peer, error, .. })) => {
-                error!("Outbound failure for peer {:?}: {:?}", peer, error);
-            }
-            SwarmEvent::Behaviour(NodeBehaviourEvent::RequestResponse(request_response::Event::InboundFailure { peer, error, .. })) => {
-                 error!("Inbound failure for peer {:?}: {:?}", peer, error);
-            }
-             _ => {}
         }
     }
 }
 
 pub async fn run_test_submission(mut swarm: Swarm<NodeBehaviour>, dial_addr: String, timeout_secs: u64) -> Result<()> {
     // 1. Dial the target
-    let addr: libp2p::Multiaddr = dial_addr.parse()?;
+    let addr: Multiaddr = dial_addr.parse()?;
     info!("Test: Dialing {}...", addr);
     swarm.dial(addr.clone())?;
     
-    // We need to extract the peer_id from the multiaddr if possible, 
-    // or wait for ConnectionEstablished to know who to send the request to.
-    // If dial_addr ends with /p2p/<peer_id>, we can parse it.
     let target_peer = match addr.iter().find(|p| matches!(p, libp2p::multiaddr::Protocol::P2p(_))) {
         Some(libp2p::multiaddr::Protocol::P2p(peer_id)) => Some(peer_id),
         _ => None,
@@ -192,8 +408,8 @@ pub async fn run_test_submission(mut swarm: Swarm<NodeBehaviour>, dial_addr: Str
 
     let mut op_sent = false;
     let expected_op_id = Uuid::new_v4().to_string();
-    let timeout = std::time::Duration::from_secs(timeout_secs);
-    let start_time = std::time::Instant::now();
+    let timeout = Duration::from_secs(timeout_secs);
+    let start_time = Instant::now();
 
     loop {
         if start_time.elapsed() > timeout {
@@ -202,7 +418,7 @@ pub async fn run_test_submission(mut swarm: Swarm<NodeBehaviour>, dial_addr: Str
 
         let event = tokio::select! {
              e = swarm.select_next_some() => e,
-             _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => continue,
+             _ = tokio::time::sleep(Duration::from_millis(100)) => continue,
         };
 
         match event {
@@ -211,9 +427,6 @@ pub async fn run_test_submission(mut swarm: Swarm<NodeBehaviour>, dial_addr: Str
             }
             SwarmEvent::ConnectionEstablished { peer_id, .. } => {
                 info!("Test: Connected to {}", peer_id);
-                // If we didn't know the target peer before, check if this is the one we expect?
-                // Or just send to the first peer we connect to if we dialed them.
-                // If `target_peer` is set, check it matches.
                 if let Some(tp) = target_peer {
                      if tp != peer_id {
                          continue;
@@ -265,7 +478,6 @@ pub async fn run_test_submission(mut swarm: Swarm<NodeBehaviour>, dial_addr: Str
                 }
              }
              SwarmEvent::Behaviour(NodeBehaviourEvent::RequestResponse(request_response::Event::OutboundFailure { error, .. })) => {
-                 // Fast fail if immediate error
                  error!("Test: Outbound failure: {:?}", error);
                  if op_sent {
                       anyhow::bail!("Test FAILED: Outbound failure after send");

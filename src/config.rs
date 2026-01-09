@@ -89,6 +89,12 @@ pub struct Config {
     pub dial: Option<String>,
     pub peers: Vec<String>,
     pub identity_keypair: identity::Keypair,
+    // Production peer discovery configuration
+    pub bootstrap_peers: Vec<String>,
+    pub enable_mdns: bool,
+    pub enable_kad: bool,
+    pub enable_relay: bool,
+    pub discovery_timeout_secs: u64,
 }
 
 pub fn load_or_create_identity(path: &Path) -> identity::Keypair {
@@ -131,6 +137,12 @@ pub fn parse_args() -> (CliArgs, Config) {
         dial: Option<String>,
         #[serde(default)]
         peers: Vec<String>,
+        #[serde(default)]
+        bootstrap_peers: Vec<String>,
+        enable_mdns: Option<bool>,
+        enable_kad: Option<bool>,
+        enable_relay: Option<bool>,
+        discovery_timeout_secs: Option<u64>,
     }
 
     let file_config: Option<FileConfig> = if Path::new("config.toml").exists() {
@@ -146,12 +158,22 @@ pub fn parse_args() -> (CliArgs, Config) {
     let mut final_listen = "/ip4/0.0.0.0/tcp/0".to_string();
     let mut final_dial = None;
     let mut final_peers = vec![];
+    let mut final_bootstrap_peers = vec![];
+    let mut final_enable_mdns = true;
+    let mut final_enable_kad = true;
+    let mut final_enable_relay = false;
+    let mut final_discovery_timeout = 60;
 
     if let Some(cfg) = &file_config {
         if let Some(r) = &cfg.role { final_role = r.clone(); }
         if let Some(l) = &cfg.listen { final_listen = l.clone(); }
         final_dial = cfg.dial.clone();
         final_peers = cfg.peers.clone();
+        final_bootstrap_peers = cfg.bootstrap_peers.clone();
+        if let Some(mdns) = cfg.enable_mdns { final_enable_mdns = mdns; }
+        if let Some(kad) = cfg.enable_kad { final_enable_kad = kad; }
+        if let Some(relay) = cfg.enable_relay { final_enable_relay = relay; }
+        if let Some(timeout) = cfg.discovery_timeout_secs { final_discovery_timeout = timeout; }
     }
 
     // Overrides from CLI
@@ -200,6 +222,11 @@ pub fn parse_args() -> (CliArgs, Config) {
         dial: final_dial,
         peers: final_peers,
         identity_keypair: keypair,
+        bootstrap_peers: final_bootstrap_peers,
+        enable_mdns: final_enable_mdns,
+        enable_kad: final_enable_kad,
+        enable_relay: final_enable_relay,
+        discovery_timeout_secs: final_discovery_timeout,
     };
 
     (args, config)

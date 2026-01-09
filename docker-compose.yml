@@ -1,58 +1,98 @@
 services:
-  gateway:
+  bootstrap:
     build:
       context: .
-    container_name: p2p_gateway
+    container_name: p2p_bootstrap
     command: >
       sh -lc '
         mkdir -p /data /shared;
-        # imprime peer_id a un archivo compartido (lo usaremos luego)
-        PEER_ID=$$(agent peer-id --identity-file /data/id.key);
-        echo "$$PEER_ID" > /shared/gateway_peer_id;
-        echo "[gateway] peer_id=$$PEER_ID";
-        exec agent --role gateway --identity-file /data/id.key --listen /ip4/0.0.0.0/tcp/4001 run
+        PEER_ID=$$(agent peer-id --identity-file /data/bootstrap.key);
+        echo "$$PEER_ID" > /shared/bootstrap_peer_id;
+        echo "[bootstrap] peer_id=$$PEER_ID, listening on 0.0.0.0:4000";
+        
+        # Create config with empty bootstrap peers (it is the bootstrap)
+        echo "role = \"gateway\"" > /data/config.toml;
+        echo "listen = \"/ip4/0.0.0.0/tcp/4000\"" >> /data/config.toml;
+        echo "enable_mdns = false" >> /data/config.toml;
+        echo "enable_kad = true" >> /data/config.toml;
+        echo "bootstrap_peers = []" >> /data/config.toml;
+        
+        cd /data && exec agent --identity-file bootstrap.key run
       '
     volumes:
-      - gateway_data:/data
+      - bootstrap_data:/data
       - shared:/shared
+    networks:
+      p2p_net:
+        ipv4_address: 172.20.0.10
 
-  client1:
+  client_auto1:
     build:
       context: .
-    container_name: p2p_client1
+    container_name: p2p_client_auto1
     command: >
       sh -lc '
         mkdir -p /data /shared;
-        # espera a que el gateway publique su peer_id
-        until [ -f /shared/gateway_peer_id ]; do echo "[client1] waiting peer_id"; sleep 1; done;
-        PEER_ID=$$(cat /shared/gateway_peer_id);
-        echo "[client1] gateway_peer_id=$$PEER_ID";
-        exec agent --role client --identity-file /data/id.key --listen /ip4/0.0.0.0/tcp/4002 --dial /dns4/gateway/tcp/4001/p2p/$$PEER_ID run
+        until [ -f /shared/bootstrap_peer_id ]; do 
+          echo "[client_auto1] waiting for bootstrap peer_id..."; 
+          sleep 1; 
+        done;
+        
+        PEER_ID=$$(cat /shared/bootstrap_peer_id);
+        echo "[client_auto1] Bootstrap peer ID: $$PEER_ID";
+        
+        # Create config with bootstrap peer
+        echo "role = \"client\"" > /data/config.toml;
+        echo "listen = \"/ip4/0.0.0.0/tcp/0\"" >> /data/config.toml;
+        echo "enable_mdns = false" >> /data/config.toml;
+        echo "enable_kad = true" >> /data/config.toml;
+        echo "bootstrap_peers = [\"/ip4/172.20.0.10/tcp/4000/p2p/$$PEER_ID\"]" >> /data/config.toml;
+        
+        echo "[client_auto1] Starting with DHT bootstrap...";
+        cd /data && exec agent --identity-file id.key run
       '
     depends_on:
-      - gateway
+      - bootstrap
     volumes:
-      - client1_data:/data
+      - client_auto1_data:/data
       - shared:/shared
+    networks:
+      - p2p_net
 
-  client2:
+  client_auto2:
     build:
       context: .
-    container_name: p2p_client2
+    container_name: p2p_client_auto2
     command: >
       sh -lc '
         mkdir -p /data /shared;
-        until [ -f /shared/gateway_peer_id ]; do echo "[client2] waiting peer_id"; sleep 1; done;
-        PEER_ID=$$(cat /shared/gateway_peer_id);
-        echo "[client2] gateway_peer_id=$$PEER_ID";
-        exec agent --role client --identity-file /data/id.key --listen /ip4/0.0.0.0/tcp/4003 --dial /dns4/gateway/tcp/4001/p2p/$$PEER_ID run
+        until [ -f /shared/bootstrap_peer_id ]; do 
+          echo "[client_auto2] waiting for bootstrap peer_id..."; 
+          sleep 1; 
+        done;
+        
+        PEER_ID=$$(cat /shared/bootstrap_peer_id);
+        echo "[client_auto2] Bootstrap peer ID: $$PEER_ID";
+        
+        # Create config with bootstrap peer
+        echo "role = \"client\"" > /data/config.toml;
+        echo "listen = \"/ip4/0.0.0.0/tcp/0\"" >> /data/config.toml;
+        echo "enable_mdns = false" >> /data/config.toml;
+        echo "enable_kad = true" >> /data/config.toml;
+        echo "bootstrap_peers = [\"/ip4/172.20.0.10/tcp/4000/p2p/$$PEER_ID\"]" >> /data/config.toml;
+        
+        echo "[client_auto2] Starting with DHT bootstrap...";
+        cd /data && exec agent --identity-file id.key run
       '
     depends_on:
-      - gateway
+      - bootstrap
     volumes:
-      - client2_data:/data
+      - client_auto2_data:/data
       - shared:/shared
+    networks:
+      - p2p_net
 
+  # Optional: tester container for one-shot test
   tester:
     build:
       context: .
@@ -60,20 +100,37 @@ services:
     command: >
       sh -lc '
         mkdir -p /data /shared;
-        until [ -f /shared/gateway_peer_id ]; do echo "[tester] waiting peer_id"; sleep 1; done;
-        PEER_ID=$$(cat /shared/gateway_peer_id);
-        echo "[tester] testing dial to gateway peer_id=$$PEER_ID";
-        agent --identity-file /data/id.key --listen /ip4/0.0.0.0/tcp/0 test-submit --dial /dns4/gateway/tcp/4001/p2p/$$PEER_ID --timeout-secs 30
+        until [ -f /shared/bootstrap_peer_id ]; do 
+          echo "[tester] waiting for bootstrap peer_id..."; 
+          sleep 1; 
+        done;
+        
+        PEER_ID=$$(cat /shared/bootstrap_peer_id);
+        echo "[tester] Testing connection to bootstrap peer: $$PEER_ID";
+        
+        agent --identity-file /data/id.key test-submit \
+          --dial "/ip4/172.20.0.10/tcp/4000/p2p/$$PEER_ID" \
+          --timeout-secs 30
       '
     depends_on:
-      - gateway
+      - bootstrap
     volumes:
       - tester_data:/data
       - shared:/shared
+    networks:
+      - p2p_net
+    profiles: ["test"]
+
+networks:
+  p2p_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
 
 volumes:
-  gateway_data:
-  client1_data:
-  client2_data:
+  bootstrap_data:
+  client_auto1_data:
+  client_auto2_data:
   tester_data:
   shared:

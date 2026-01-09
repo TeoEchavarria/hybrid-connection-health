@@ -15,7 +15,14 @@ libp2p = { version = "0.56.0", features = [
   "tcp",
   "noise",
   "yamux",
-  "cbor" # Needed for basic request-response codec if we were using cbor, but we're doing custom json. Keeping minimum as requested.
+  "cbor",
+  # Production peer discovery features
+  "identify",    # Address discovery and protocol negotiation
+  "kad",         # Kademlia DHT for peer discovery
+  "ping",        # Liveness checks
+  "relay",       # Circuit relay for NAT traversal
+  "dcutr",       # Direct connection upgrade (hole punching)
+  "autonat"      # Automatic NAT detection
 ] }
 
 serde = { version = "1.0.228", features = ["derive"] }

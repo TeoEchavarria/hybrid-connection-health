@@ -6,8 +6,21 @@ role = "client"
 # Listen address
 listen = "/ip4/0.0.0.0/tcp/0"
 
-# List of peers to connect to automatically
+# List of peers to connect to automatically (manual static peers)
 peers = [
     # Replace with the actual address of the other device
     # "/ip4/192.168.1.50/tcp/35701"
 ]
+
+# Bootstrap peers for DHT discovery (required for WAN/multi-subnet discovery)
+# Format: multiaddr with peer ID, e.g., "/ip4/1.2.3.4/tcp/4001/p2p/12D3KooW..."
+bootstrap_peers = [
+    # "/ip4/192.168.1.100/tcp/4001/p2p/12D3KooWBootstrapPeer...",
+    # "/dns4/bootstrap.example.com/tcp/4001/p2p/12D3KooW...",
+]
+
+# Discovery settings
+enable_mdns = true           # LAN discovery via mDNS (default: true)
+enable_kad = true            # DHT for WAN discovery (default: true)
+enable_relay = false         # NAT traversal via relay (default: false)
+discovery_timeout_secs = 60  # Timeout for initial peer discovery
