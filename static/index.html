@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Estado del Sistema</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1000px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            font-size: 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .btn-row {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        #output {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #f4f4f4;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            min-height: 50px;
+        }
+        .error {
+            color: #d32f2f;
+        }
+        .muted {
+            color: #666;
+            font-size: 12px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 12px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            vertical-align: top;
+            text-align: left;
+        }
+        th {
+            background: #f7f7f7;
+        }
+        .pill {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 999px;
+            font-size: 12px;
+            border: 1px solid #ddd;
+            background: #fff;
+        }
+        .pill.ok {
+            border-color: #2e7d32;
+            color: #2e7d32;
+            background: #e8f5e9;
+        }
+        .pill.bad {
+            border-color: #c62828;
+            color: #c62828;
+            background: #ffebee;
+        }
+    </style>
+</head>
+<body>
+    <h1>Estado del Sistema</h1>
+    <div class="btn-row">
+        <button onclick="verEstado()">Ver estado</button>
+        <button onclick="verRed()">Ver red</button>
+    </div>
+    <div class="muted" id="meta"></div>
+    <pre id="output"></pre>
+    <div id="network"></div>
+
+    <script>
+        function esc(s) {
+            return String(s)
+                .replaceAll('&', '&amp;')
+                .replaceAll('<', '&lt;')
+                .replaceAll('>', '&gt;')
+                .replaceAll('"', '&quot;')
+                .replaceAll("'", '&#039;');
+        }
+
+        function pill(connected) {
+            return connected
+                ? '<span class="pill ok">conectado</span>'
+                : '<span class="pill bad">no conectado</span>';
+        }
+
+        async function verEstado() {
+            const output = document.getElementById('output');
+            const meta = document.getElementById('meta');
+            const network = document.getElementById('network');
+            output.textContent = 'Cargando...';
+            meta.textContent = '';
+            network.innerHTML = '';
+            
+            try {
+                const response = await fetch('/status');
+                
+                if (!response.ok) {
+                    throw new Error(`Error HTTP: ${response.status} ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                output.textContent = JSON.stringify(data, null, 2);
+                output.classList.remove('error');
+            } catch (error) {
+                output.textContent = `Error: ${error.message}`;
+                output.classList.add('error');
+            }
+        }
+
+        async function verRed() {
+            const output = document.getElementById('output');
+            const meta = document.getElementById('meta');
+            const network = document.getElementById('network');
+            output.textContent = '';
+            output.classList.remove('error');
+            network.innerHTML = 'Cargando...';
+            meta.textContent = '';
+
+            try {
+                const response = await fetch('/network');
+                if (!response.ok) {
+                    throw new Error(`Error HTTP: ${response.status} ${response.statusText}`);
+                }
+                const data = await response.json();
+
+                meta.textContent = `peer_id local: ${data.local_peer_id || '-'} | role: ${data.role || '-'} | listen: ${data.listen || '-'} | actualizado_ms: ${data.updated_at_ms || '-'}`;
+
+                const bootstrap = Array.isArray(data.bootstrap_peers) ? data.bootstrap_peers : [];
+                const peersMap = data.peers && typeof data.peers === 'object' ? data.peers : {};
+                const peers = Object.values(peersMap);
+
+                const bootstrapRows = bootstrap.map(bp => `
+                    <tr>
+                        <td>${pill(!!bp.connected)}</td>
+                        <td><code>${esc(bp.peer_id || '-')}</code></td>
+                        <td><code>${esc(bp.multiaddr || '-')}</code></td>
+                    </tr>
+                `).join('');
+
+                const peerRows = peers.map(p => {
+                    const via = Array.isArray(p.discovered_via) ? p.discovered_via.join(', ') : (p.discovered_via ? String(p.discovered_via) : '');
+                    const rtt = (p.last_rtt_ms === null || p.last_rtt_ms === undefined) ? '-' : `${p.last_rtt_ms} ms`;
+                    return `
+                        <tr>
+                            <td>${pill(!!p.connected)}</td>
+                            <td><code>${esc(p.peer_id || '-')}</code></td>
+                            <td>${esc(via || '-')}</td>
+                            <td>${esc(rtt)}</td>
+                        </tr>
+                    `;
+                }).join('');
+
+                network.innerHTML = `
+                    <h2>Bootstrap peers</h2>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Estado</th>
+                                <th>PeerId</th>
+                                <th>Multiaddr</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${bootstrapRows || '<tr><td colspan="3">Sin bootstrap peers configurados</td></tr>'}
+                        </tbody>
+                    </table>
+
+                    <h2>Peers (descubiertos/conectados)</h2>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Estado</th>
+                                <th>PeerId</th>
+                                <th>Descubierto vía</th>
+                                <th>RTT</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${peerRows || '<tr><td colspan="4">Aún no hay peers descubiertos</td></tr>'}
+                        </tbody>
+                    </table>
+                `;
+            } catch (error) {
+                network.innerHTML = `<div class="error">Error: ${esc(error.message)}</div>`;
+            }
+        }
+    </script>
+</body>
+</html>

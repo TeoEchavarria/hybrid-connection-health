@@ -181,7 +181,13 @@ pub async fn build_swarm(config: &Config) -> Result<Swarm<NodeBehaviour>> {
     Ok(swarm)
 }
 
-pub async fn run_swarm(mut swarm: Swarm<NodeBehaviour>, config: Config) -> Result<()> {
+use crate::api::SharedNetworkState;
+
+pub async fn run_swarm(
+    mut swarm: Swarm<NodeBehaviour>,
+    config: Config,
+    network_state: SharedNetworkState,
+) -> Result<()> {
     let mut dial_state = DialState::new();
     let mut discovered_via_mdns: HashSet<PeerId> = HashSet::new();
     let mut discovered_via_kad: HashSet<PeerId> = HashSet::new();
@@ -205,6 +211,12 @@ pub async fn run_swarm(mut swarm: Swarm<NodeBehaviour>, config: Config) -> Resul
                     }
                     SwarmEvent::ConnectionEstablished { peer_id, endpoint, .. } => {
                         info!("✅ Connection established with {} ({})", peer_id, endpoint.get_remote_address());
+
+                        // Update shared network snapshot
+                        {
+                            let mut snap = network_state.write().await;
+                            snap.set_connected(peer_id.to_string(), true);
+                        }
                         
                         // Legacy: send OpSubmit if Client role
                         if let Role::Client = config.role {
@@ -222,6 +234,12 @@ pub async fn run_swarm(mut swarm: Swarm<NodeBehaviour>, config: Config) -> Resul
                     }
                     SwarmEvent::ConnectionClosed { peer_id, cause, .. } => {
                         warn!("❌ Connection closed with {}: {:?}", peer_id, cause);
+
+                        // Update shared network snapshot
+                        {
+                            let mut snap = network_state.write().await;
+                            snap.set_connected(peer_id.to_string(), false);
+                        }
                     }
                     
                     // Identify events
@@ -260,6 +278,11 @@ pub async fn run_swarm(mut swarm: Swarm<NodeBehaviour>, config: Config) -> Resul
                         for (peer_id, multiaddr) in list {
                             info!("📡 mDNS Discovered: {} at {}", peer_id, multiaddr);
                             discovered_via_mdns.insert(peer_id);
+
+                            {
+                                let mut snap = network_state.write().await;
+                                snap.mark_discovered(peer_id.to_string(), "mdns");
+                            }
                             
                             swarm.add_peer_address(peer_id, multiaddr.clone());
                             if config.enable_kad {
@@ -300,6 +323,11 @@ pub async fn run_swarm(mut swarm: Swarm<NodeBehaviour>, config: Config) -> Resul
                     SwarmEvent::Behaviour(NodeBehaviourEvent::Kad(kad::Event::RoutingUpdated { peer, addresses, .. })) => {
                         info!("🗺️  Kademlia routing updated: {} with {} addresses", peer, addresses.len());
                         discovered_via_kad.insert(peer);
+
+                        {
+                            let mut snap = network_state.write().await;
+                            snap.mark_discovered(peer.to_string(), "kad");
+                        }
                         
                         // Auto-dial if not connected (symmetric)
                         if !swarm.is_connected(&peer) && dial_state.can_dial(&peer) {
@@ -312,6 +340,10 @@ pub async fn run_swarm(mut swarm: Swarm<NodeBehaviour>, config: Config) -> Resul
                     SwarmEvent::Behaviour(NodeBehaviourEvent::Ping(ping::Event { peer, result, .. })) => {
                         match result {
                             Ok(rtt) => {
+                                {
+                                    let mut snap = network_state.write().await;
+                                    snap.set_rtt_ms(peer.to_string(), rtt.as_millis() as u64);
+                                }
                                 // Don't log every ping to reduce noise
                                 if rtt.as_millis() > 500 {
                                     warn!("🏓 High latency ping from {}: {:?}", peer, rtt);

@@ -1,5 +1,6 @@
 mod config;
 mod p2p;
+mod api;
 
 use anyhow::Result;
 use config::Commands;
@@ -45,10 +46,18 @@ async fn main() -> Result<()> {
             
             // Build Swarm
             let swarm = build_swarm(&config).await?;
+            let local_peer_id = swarm.local_peer_id().to_string();
+            let network_state = api::new_shared_network_state(&config, local_peer_id);
+
+            // Iniciar API local en paralelo con el swarm
+            let api_state = network_state.clone();
+            let api_task = tokio::spawn(async {
+                api::iniciar_api_local(api_state).await;
+            });
 
             // Run Swarm loop with graceful shutdown
             tokio::select! {
-                res = run_swarm(swarm, config) => {
+                res = run_swarm(swarm, config, network_state) => {
                     if let Err(e) = res {
                         tracing::error!("Swarm error: {:?}", e);
                     }
@@ -57,6 +66,9 @@ async fn main() -> Result<()> {
                     info!("Received Ctrl+C, shutting down...");
                 }
             }
+
+            // Abort API task on shutdown
+            api_task.abort();
         }
     }
 
