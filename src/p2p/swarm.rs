@@ -227,6 +227,29 @@ pub async fn run_swarm(
                             snap.set_connected(peer_id.to_string(), true);
                         }
                         
+                        // Add peer to Kademlia and trigger bootstrap when we have an active connection
+                        // This ensures bootstrap works regardless of startup order
+                        if config.enable_kad {
+                            // Add the peer's endpoint address to Kademlia routing table
+                            swarm.behaviour_mut().kad.add_address(&peer_id, endpoint.get_remote_address().clone());
+                            
+                            // Trigger Kademlia bootstrap if not attempted yet
+                            // Wait a brief moment if we just started (to let identify exchange addresses)
+                            // but bootstrap immediately if we've been running for a bit
+                            if !dial_state.bootstrap_attempted {
+                                let should_bootstrap_now = start_time.elapsed() > Duration::from_secs(2);
+                                
+                                if should_bootstrap_now {
+                                    info!("🌐 Bootstrapping Kademlia DHT after connection established...");
+                                    if let Err(e) = swarm.behaviour_mut().kad.bootstrap() {
+                                        warn!("Kademlia bootstrap failed (will retry later): {:?}", e);
+                                    } else {
+                                        dial_state.bootstrap_attempted = true;
+                                    }
+                                }
+                            }
+                        }
+                        
                         // Legacy: send OpSubmit if Client role
                         if let Role::Client = config.role {
                              let op = Op {
@@ -265,8 +288,10 @@ pub async fn run_swarm(
                                 }
                                 
                                 // Trigger Kademlia bootstrap after first successful identify
-                                if config.enable_kad && !dial_state.bootstrap_attempted && start_time.elapsed() > Duration::from_secs(5) {
-                                    info!("🌐 Bootstrapping Kademlia DHT...");
+                                // This is a fallback in case ConnectionEstablished didn't trigger it
+                                // We no longer require the 5-second delay since we have better timing in ConnectionEstablished
+                                if config.enable_kad && !dial_state.bootstrap_attempted {
+                                    info!("🌐 Bootstrapping Kademlia DHT after identify...");
                                     if let Err(e) = swarm.behaviour_mut().kad.bootstrap() {
                                         error!("Kademlia bootstrap failed: {:?}", e);
                                     } else {
