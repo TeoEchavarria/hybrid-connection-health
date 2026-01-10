@@ -1,8 +1,9 @@
 mod config;
 mod p2p;
 mod api;
+mod broker;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use config::Commands;
 use p2p::swarm::{build_swarm, run_swarm, run_test_submission};
 use tracing::info;
@@ -49,6 +50,49 @@ async fn main() -> Result<()> {
             let local_peer_id = swarm.local_peer_id().to_string();
             let network_state = api::new_shared_network_state(&config, local_peer_id);
 
+            // Setup broker components if Gateway role and central_api_url configured
+            let broker_handler = if matches!(config.role, config::Role::Gateway) && config.central_api_url.is_some() {
+                use broker::storage::BrokerStorage;
+                use broker::handler::BrokerHandler;
+                use broker::forwarder::ForwarderWorker;
+                use broker::notifier::NotifierWorker;
+                use std::sync::Arc;
+
+                info!("Initializing broker components...");
+                
+                // Create storage
+                let storage = Arc::new(
+                    BrokerStorage::new(&config.db_path)
+                        .context("Failed to initialize broker storage")?
+                );
+
+                // Create broker handler
+                let handler = Arc::new(BrokerHandler::new(storage.clone()));
+
+                // Spawn forwarder worker
+                let forwarder = ForwarderWorker::new(storage.clone(), config.clone())
+                    .context("Failed to create forwarder worker")?;
+                tokio::spawn(async move {
+                    if let Err(e) = forwarder.run().await {
+                        tracing::error!("Forwarder worker error: {:?}", e);
+                    }
+                });
+                info!("Forwarder worker spawned");
+
+                // Spawn notifier worker
+                let notifier = NotifierWorker::new(storage.clone());
+                tokio::spawn(async move {
+                    if let Err(e) = notifier.run().await {
+                        tracing::error!("Notifier worker error: {:?}", e);
+                    }
+                });
+                info!("Notifier worker spawned");
+
+                Some(handler)
+            } else {
+                None
+            };
+
             // Iniciar API local en paralelo con el swarm
             let api_state = network_state.clone();
             let api_task = tokio::spawn(async {
@@ -57,7 +101,7 @@ async fn main() -> Result<()> {
 
             // Run Swarm loop with graceful shutdown
             tokio::select! {
-                res = run_swarm(swarm, config, network_state) => {
+                res = run_swarm(swarm, config, network_state, broker_handler) => {
                     if let Err(e) = res {
                         tracing::error!("Swarm error: {:?}", e);
                     }

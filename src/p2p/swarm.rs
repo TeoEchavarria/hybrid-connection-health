@@ -53,6 +53,12 @@ pub async fn build_swarm(config: &Config) -> Result<Swarm<NodeBehaviour>> {
     let peer_id = PeerId::from(id_keys.public());
     info!("🆔 Local PeerId: {}", peer_id);
 
+    // NOTE: Relay support is not wired up yet in this repo. We still read this
+    // config so it's not silently ignored.
+    if config.enable_relay {
+        warn!("Relay is enabled in config, but relay transport/behaviour is not configured yet; ignoring enable_relay=true for now.");
+    }
+
     let tcp_transport = tcp::tokio::Transport::new(tcp::Config::default().nodelay(true));
     
     let transport = tcp_transport
@@ -182,11 +188,14 @@ pub async fn build_swarm(config: &Config) -> Result<Swarm<NodeBehaviour>> {
 }
 
 use crate::api::SharedNetworkState;
+use crate::broker::handler::BrokerHandler;
+use std::sync::Arc;
 
 pub async fn run_swarm(
     mut swarm: Swarm<NodeBehaviour>,
     config: Config,
     network_state: SharedNetworkState,
+    broker_handler: Option<Arc<BrokerHandler>>,
 ) -> Result<()> {
     let mut dial_state = DialState::new();
     let mut discovered_via_mdns: HashSet<PeerId> = HashSet::new();
@@ -372,6 +381,45 @@ pub async fn run_swarm(
                                        info!("📤 Sending OpAck to {}", peer);
                                        let _ = swarm.behaviour_mut().request_response.send_response(channel, ack);
                                    },
+                                   Msg::SubmitBooking { correlation_id, booking, notify } => {
+                                       // Only process if Gateway role and broker handler available
+                                       if matches!(config.role, Role::Gateway) {
+                                           if let Some(ref handler) = broker_handler {
+                                               info!("📥 Received SubmitBooking from {}: correlation_id={}", peer, correlation_id);
+                                               
+                                               // Handle booking submission
+                                               match handler.handle_submit_booking(correlation_id.clone(), booking, notify).await {
+                                                   Ok(ack) => {
+                                                       info!("📤 Sending BookingAck to {}: correlation_id={}", peer, correlation_id);
+                                                       let _ = swarm.behaviour_mut().request_response.send_response(channel, ack);
+                                                   },
+                                                   Err(e) => {
+                                                       error!("Failed to handle booking submission: {:?}", e);
+                                                       // Send error ACK
+                                                       let error_ack = Msg::BookingAck {
+                                                           correlation_id,
+                                                           status: "error".to_string(),
+                                                       };
+                                                       let _ = swarm.behaviour_mut().request_response.send_response(channel, error_ack);
+                                                   }
+                                               }
+                                           } else {
+                                               warn!("Received SubmitBooking but broker handler not available");
+                                               let error_ack = Msg::BookingAck {
+                                                   correlation_id,
+                                                   status: "error".to_string(),
+                                               };
+                                               let _ = swarm.behaviour_mut().request_response.send_response(channel, error_ack);
+                                           }
+                                       } else {
+                                           warn!("Received SubmitBooking but node is not a Gateway");
+                                           let error_ack = Msg::BookingAck {
+                                               correlation_id,
+                                               status: "error".to_string(),
+                                           };
+                                           let _ = swarm.behaviour_mut().request_response.send_response(channel, error_ack);
+                                       }
+                                   },
                                    _ => info!("Received other request from {}", peer),
                                }
                            }
@@ -379,6 +427,9 @@ pub async fn run_swarm(
                                 match response {
                                     Msg::OpAck { op_id, ok, msg } => {
                                         info!("📬 Received OpAck from {}: op_id={} ok={} msg={}", peer, op_id, ok, msg);
+                                    }
+                                    Msg::BookingAck { correlation_id, status } => {
+                                        info!("📬 Received BookingAck from {}: correlation_id={} status={}", peer, correlation_id, status);
                                     }
                                     _ => info!("Received other response from {}", peer),
                                 }

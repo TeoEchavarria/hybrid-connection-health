@@ -95,6 +95,11 @@ pub struct Config {
     pub enable_kad: bool,
     pub enable_relay: bool,
     pub discovery_timeout_secs: u64,
+    // Broker configuration
+    pub central_api_url: Option<String>,
+    pub db_path: String,
+    pub max_retry_attempts: u32,
+    pub initial_backoff_ms: u64,
 }
 
 pub fn load_or_create_identity(path: &Path) -> identity::Keypair {
@@ -143,6 +148,11 @@ pub fn parse_args() -> (CliArgs, Config) {
         enable_kad: Option<bool>,
         enable_relay: Option<bool>,
         discovery_timeout_secs: Option<u64>,
+        // Broker configuration
+        central_api_url: Option<String>,
+        db_path: Option<String>,
+        max_retry_attempts: Option<u32>,
+        initial_backoff_ms: Option<u64>,
     }
 
     let file_config: Option<FileConfig> = if Path::new("config.toml").exists() {
@@ -163,6 +173,11 @@ pub fn parse_args() -> (CliArgs, Config) {
     let mut final_enable_kad = true;
     let mut final_enable_relay = false;
     let mut final_discovery_timeout = 60;
+    // Broker defaults
+    let mut final_central_api_url = None;
+    let mut final_db_path = "./data/broker.db".to_string();
+    let mut final_max_retry_attempts = 10;
+    let mut final_initial_backoff_ms = 1000;
 
     if let Some(cfg) = &file_config {
         if let Some(r) = &cfg.role { final_role = r.clone(); }
@@ -174,6 +189,11 @@ pub fn parse_args() -> (CliArgs, Config) {
         if let Some(kad) = cfg.enable_kad { final_enable_kad = kad; }
         if let Some(relay) = cfg.enable_relay { final_enable_relay = relay; }
         if let Some(timeout) = cfg.discovery_timeout_secs { final_discovery_timeout = timeout; }
+        // Broker config
+        final_central_api_url = cfg.central_api_url.clone();
+        if let Some(db_path) = &cfg.db_path { final_db_path = db_path.clone(); }
+        if let Some(attempts) = cfg.max_retry_attempts { final_max_retry_attempts = attempts; }
+        if let Some(backoff) = cfg.initial_backoff_ms { final_initial_backoff_ms = backoff; }
     }
 
     // Overrides from CLI
@@ -227,6 +247,10 @@ pub fn parse_args() -> (CliArgs, Config) {
         enable_kad: final_enable_kad,
         enable_relay: final_enable_relay,
         discovery_timeout_secs: final_discovery_timeout,
+        central_api_url: final_central_api_url,
+        db_path: final_db_path,
+        max_retry_attempts: final_max_retry_attempts,
+        initial_backoff_ms: final_initial_backoff_ms,
     };
 
     (args, config)

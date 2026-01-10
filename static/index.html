@@ -1,212 +1,1032 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Estado del Sistema</title>
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Network Node Dashboard</title>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            max-width: 1000px;
-            margin: 50px auto;
-            padding: 20px;
+      :root {
+        color-scheme: light;
+      }
+      body {
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial,
+          "Apple Color Emoji", "Segoe UI Emoji";
+        margin: 0;
+        padding: 24px;
+        background: #fff;
+        color: #111;
+      }
+      .container {
+        max-width: 760px;
+        margin: 0 auto;
+      }
+      h1 {
+        margin: 0 0 6px 0;
+        font-size: 24px;
+        line-height: 1.2;
+      }
+      .subtle {
+        margin: 0 0 18px 0;
+        color: #555;
+        font-size: 13px;
+        line-height: 1.4;
+      }
+      .banner {
+        border: 1px solid #f1c40f;
+        background: #fff9db;
+        color: #5c4b00;
+        padding: 10px 12px;
+        border-radius: 8px;
+        margin-bottom: 16px;
+        font-size: 13px;
+      }
+      .hidden {
+        display: none;
+      }
+      .card {
+        border: 1px solid #e6e6e6;
+        border-radius: 10px;
+        padding: 14px;
+        background: #fff;
+        margin-bottom: 14px;
+      }
+      .row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+      @media (max-width: 640px) {
+        .row {
+          grid-template-columns: 1fr;
         }
-        button {
-            background-color: #4CAF50;
-            color: white;
-            padding: 10px 20px;
-            font-size: 16px;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-        }
-        button:hover {
-            background-color: #45a049;
-        }
-        .btn-row {
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-            align-items: center;
-        }
-        #output {
-            margin-top: 20px;
-            padding: 15px;
-            background-color: #f4f4f4;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            white-space: pre-wrap;
-            word-wrap: break-word;
-            min-height: 50px;
-        }
-        .error {
-            color: #d32f2f;
-        }
-        .muted {
-            color: #666;
-            font-size: 12px;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 12px;
-        }
-        th, td {
-            border: 1px solid #ddd;
-            padding: 8px;
-            vertical-align: top;
-            text-align: left;
-        }
-        th {
-            background: #f7f7f7;
-        }
-        .pill {
-            display: inline-block;
-            padding: 2px 8px;
-            border-radius: 999px;
-            font-size: 12px;
-            border: 1px solid #ddd;
-            background: #fff;
-        }
-        .pill.ok {
-            border-color: #2e7d32;
-            color: #2e7d32;
-            background: #e8f5e9;
-        }
-        .pill.bad {
-            border-color: #c62828;
-            color: #c62828;
-            background: #ffebee;
-        }
+      }
+      label {
+        display: block;
+        font-size: 13px;
+        color: #333;
+        margin-bottom: 6px;
+      }
+      input {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 10px 10px;
+        border: 1px solid #d8d8d8;
+        border-radius: 8px;
+        font-size: 14px;
+      }
+      input:focus {
+        outline: none;
+        border-color: #5b8def;
+        box-shadow: 0 0 0 3px rgba(91, 141, 239, 0.18);
+      }
+      .errorText {
+        margin-top: 6px;
+        color: #b42318;
+        font-size: 12px;
+      }
+      .actions {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+        margin-top: 10px;
+      }
+      button {
+        appearance: none;
+        border: 1px solid #1f6feb;
+        background: #1f6feb;
+        color: #fff;
+        padding: 10px 14px;
+        border-radius: 8px;
+        font-size: 14px;
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+      button.secondary {
+        background: #fff;
+        color: #1f6feb;
+      }
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        border: 1px solid #d8d8d8;
+        background: #f7f7f7;
+        color: #333;
+        padding: 3px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+      }
+      .pill.ok {
+        border-color: #2e7d32;
+        background: #e8f5e9;
+        color: #2e7d32;
+      }
+      .pill.warn {
+        border-color: #c57d00;
+        background: #fff3d6;
+        color: #7a4d00;
+      }
+      .pill.bad {
+        border-color: #b42318;
+        background: #ffebee;
+        color: #b42318;
+      }
+      pre {
+        background: #0b1020;
+        color: #e6edf3;
+        padding: 12px;
+        border-radius: 10px;
+        overflow: auto;
+        font-size: 12px;
+        line-height: 1.35;
+        margin: 10px 0 0 0;
+      }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+          "Courier New", monospace;
+        font-size: 12px;
+      }
+      details {
+        margin-top: 10px;
+      }
+      summary {
+        cursor: pointer;
+        color: #1f6feb;
+        font-size: 13px;
+      }
+      .mutedLine {
+        color: #666;
+        font-size: 12px;
+        margin-top: 6px;
+      }
+      .successBox {
+        border: 1px solid #2e7d32;
+        background: #e8f5e9;
+        color: #2e7d32;
+        padding: 10px 12px;
+        border-radius: 10px;
+      }
+      .errorBox {
+        border: 1px solid #b42318;
+        background: #ffebee;
+        color: #b42318;
+        padding: 10px 12px;
+        border-radius: 10px;
+      }
+      .tabs {
+        display: flex;
+        gap: 8px;
+        border-bottom: 1px solid #e6e6e6;
+        margin-bottom: 16px;
+      }
+      .tab {
+        padding: 10px 14px;
+        background: transparent;
+        border: none;
+        border-bottom: 2px solid transparent;
+        color: #666;
+        font-size: 14px;
+        cursor: pointer;
+        margin-bottom: -1px;
+      }
+      .tab:hover {
+        color: #111;
+      }
+      .tab.active {
+        color: #1f6feb;
+        border-bottom-color: #1f6feb;
+        font-weight: 500;
+      }
+      .tabContent {
+        display: none;
+      }
+      .tabContent.active {
+        display: block;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 12px;
+        font-size: 13px;
+      }
+      th, td {
+        border: 1px solid #e6e6e6;
+        padding: 8px;
+        text-align: left;
+        vertical-align: top;
+      }
+      th {
+        background: #f7f7f7;
+        font-weight: 500;
+      }
+      .metaLine {
+        margin: 6px 0;
+        font-size: 13px;
+        color: #555;
+      }
+      .metaLine code {
+        background: #f7f7f7;
+        padding: 2px 6px;
+        border-radius: 4px;
+      }
     </style>
-</head>
-<body>
-    <h1>Estado del Sistema</h1>
-    <div class="btn-row">
-        <button onclick="verEstado()">Ver estado</button>
-        <button onclick="verRed()">Ver red</button>
+  </head>
+  <body>
+    <div class="container">
+      <!--
+        API_BASE configuration (internal API only — NEVER call the central ngrok API from the browser):
+
+        Default:
+          - API_BASE = "" (same origin)
+        Override options (highest precedence first):
+          1) Query string:   ?apiBase=https://client-internal-api.example
+          2) Global config:  window.__API_BASE__ = "https://client-internal-api.example"
+          3) Default:        ""
+      -->
+
+      <div id="offlineBanner" class="banner hidden">
+        <strong>Offline:</strong> request may fail to reach internal API.
+      </div>
+
+      <h1>Network Node Dashboard</h1>
+
+      <div class="tabs">
+        <button class="tab active" data-tab="book">Book</button>
+        <button class="tab" data-tab="status">Node Status</button>
+        <button class="tab" data-tab="network">Network</button>
+      </div>
+
+      <!-- BOOK TAB -->
+      <div id="tabBook" class="tabContent active">
+      <p class="subtle">
+        This page sends booking requests to your <strong>internal API</strong> which forwards to a network node.
+        You’ll receive an immediate ACK with a <code>correlation_id</code> and the request will be queued.
+      </p>
+
+      <div class="card">
+        <form id="bookingForm" novalidate>
+          <div class="row">
+            <div>
+              <label for="date">Date</label>
+              <input id="date" name="date" type="date" required />
+              <div class="errorText" id="err_date"></div>
+            </div>
+            <div>
+              <label for="name">Name</label>
+              <input id="name" name="name" type="text" placeholder="Full name" required />
+              <div class="errorText" id="err_name"></div>
+            </div>
+          </div>
+
+          <div class="row" style="margin-top: 10px;">
+            <div>
+              <label for="start_time">Start time</label>
+              <input id="start_time" name="start_time" type="time" required />
+              <div class="errorText" id="err_start_time"></div>
+            </div>
+            <div>
+              <label for="end_time">End time</label>
+              <input id="end_time" name="end_time" type="time" required />
+              <div class="errorText" id="err_end_time"></div>
+            </div>
+          </div>
+
+          <div style="margin-top: 10px;">
+            <label for="notify_email">Notification email</label>
+            <input
+              id="notify_email"
+              name="notify_email"
+              type="email"
+              inputmode="email"
+              placeholder="user@example.com"
+              required
+            />
+            <div class="errorText" id="err_notify_email"></div>
+          </div>
+
+          <div class="actions">
+            <button id="submitBtn" type="submit">Request booking</button>
+            <button id="retryBtn" type="button" class="secondary hidden">Retry (same correlation_id)</button>
+            <span class="mutedLine" id="apiMeta"></span>
+          </div>
+
+            <div class="errorBox hidden" id="submitError" style="margin-top: 12px;"></div>
+          </form>
+        </div>
+
+        <div class="card hidden" id="ackCard">
+          <div class="successBox">
+            <div><strong>Queued on network node</strong></div>
+            <div class="mutedLine">
+              correlation_id: <code id="correlationIdText"></code>
+            </div>
+          </div>
+        </div>
+
+        <div class="card hidden" id="statusCard">
+          <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+            <div class="pill" id="statusPill">status: -</div>
+            <div class="mutedLine">
+              Polling: <code id="pollingUrlText"></code>
+            </div>
+          </div>
+          <div class="mutedLine hidden" id="confirmedNote">
+            Notification will be sent (simulated).
+          </div>
+          <div class="errorBox hidden" id="statusError" style="margin-top: 10px;"></div>
+          <pre id="statusJson" class="hidden"></pre>
+        </div>
+
+        <details class="card">
+          <summary>How to deploy</summary>
+        <div class="mutedLine" style="margin-top: 10px;">
+          <strong>Static hosting:</strong> upload this single <code>index.html</code> (and keep it as the site root).
+          Configure the internal API URL via <code>?apiBase=...</code> if it’s not the same origin.\n
+        </div>
+        <div class="mutedLine" style="margin-top: 10px;">
+          <strong>Client node hosting (recommended):</strong> serve this page from the same origin as the internal API,
+          so <code>API_BASE=\"\"</code> works without CORS. Example: internal API serves this file at <code>/</code> and handles
+          <code>POST /appointments/book-range</code> + <code>GET /internal/appointments/status</code>.
+        </div>
+        </details>
+      </div>
+
+      <!-- NODE STATUS TAB -->
+      <div id="tabStatus" class="tabContent">
+        <div class="card">
+          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+            <h2 style="margin: 0; font-size: 18px;">Current Node State</h2>
+            <button id="refreshStatusBtn" class="secondary">Refresh</button>
+          </div>
+          <div id="nodeStatusContent" style="margin-top: 12px;">
+            <div class="mutedLine">Click "Refresh" to load node status...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- NETWORK TAB -->
+      <div id="tabNetwork" class="tabContent">
+        <div class="card">
+          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+            <h2 style="margin: 0; font-size: 18px;">Network Peers</h2>
+            <button id="refreshNetworkBtn" class="secondary">Refresh</button>
+          </div>
+          <div id="networkContent" style="margin-top: 12px;">
+            <div class="mutedLine">Click "Refresh" to load network info...</div>
+          </div>
+        </div>
+      </div>
     </div>
-    <div class="muted" id="meta"></div>
-    <pre id="output"></pre>
-    <div id="network"></div>
 
     <script>
+      (function () {
+        const LS_CORRELATION = "booking.correlation_id";
+        const LS_LAST_PAYLOAD = "booking.last_payload";
+        const LS_LAST_API_BASE = "booking.api_base";
+
+        const form = document.getElementById("bookingForm");
+        const submitBtn = document.getElementById("submitBtn");
+        const retryBtn = document.getElementById("retryBtn");
+
+        const offlineBanner = document.getElementById("offlineBanner");
+        const apiMeta = document.getElementById("apiMeta");
+
+        const ackCard = document.getElementById("ackCard");
+        const correlationIdText = document.getElementById("correlationIdText");
+
+        const statusCard = document.getElementById("statusCard");
+        const statusPill = document.getElementById("statusPill");
+        const pollingUrlText = document.getElementById("pollingUrlText");
+        const statusJson = document.getElementById("statusJson");
+        const statusError = document.getElementById("statusError");
+        const confirmedNote = document.getElementById("confirmedNote");
+
+        const submitError = document.getElementById("submitError");
+
+        let pollingTimer = null;
+        let inFlight = false;
+
+        function $(id) {
+          return document.getElementById(id);
+        }
+
+        function setHidden(el, hidden) {
+          el.classList.toggle("hidden", !!hidden);
+        }
+
         function esc(s) {
-            return String(s)
-                .replaceAll('&', '&amp;')
-                .replaceAll('<', '&lt;')
-                .replaceAll('>', '&gt;')
-                .replaceAll('"', '&quot;')
-                .replaceAll("'", '&#039;');
+          return String(s)
+            .replaceAll("&", "&amp;")
+            .replaceAll("<", "&lt;")
+            .replaceAll(">", "&gt;")
+            .replaceAll('"', "&quot;")
+            .replaceAll("'", "&#039;");
         }
 
-        function pill(connected) {
-            return connected
-                ? '<span class="pill ok">conectado</span>'
-                : '<span class="pill bad">no conectado</span>';
+        function getApiBase() {
+          const qs = new URLSearchParams(window.location.search);
+          const fromQs = qs.get("apiBase");
+          if (fromQs && typeof fromQs === "string") return fromQs.replace(/\/+$/, "");
+          if (typeof window.__API_BASE__ === "string" && window.__API_BASE__) {
+            return window.__API_BASE__.replace(/\/+$/, "");
+          }
+          return "";
         }
 
-        async function verEstado() {
-            const output = document.getElementById('output');
-            const meta = document.getElementById('meta');
-            const network = document.getElementById('network');
-            output.textContent = 'Cargando...';
-            meta.textContent = '';
-            network.innerHTML = '';
-            
-            try {
-                const response = await fetch('/status');
-                
-                if (!response.ok) {
-                    throw new Error(`Error HTTP: ${response.status} ${response.statusText}`);
-                }
-                
-                const data = await response.json();
-                output.textContent = JSON.stringify(data, null, 2);
-                output.classList.remove('error');
-            } catch (error) {
-                output.textContent = `Error: ${error.message}`;
-                output.classList.add('error');
+        function updateOfflineBanner() {
+          setHidden(offlineBanner, navigator.onLine !== false);
+        }
+
+        function normalizeTime(input) {
+          if (!input) return "";
+          // input type="time" may provide "HH:MM" or "HH:MM:SS"
+          const parts = String(input).split(":");
+          if (parts.length < 2) return "";
+          let h = parts[0].trim();
+          let m = parts[1].trim();
+          if (!/^\d+$/.test(h) || !/^\d+$/.test(m)) return "";
+          const hh = String(parseInt(h, 10)).padStart(2, "0");
+          const mm = String(parseInt(m, 10)).padStart(2, "0");
+          return `${hh}:${mm}`;
+        }
+
+        function toMinutes(hhmm) {
+          const m = /^(\d{2}):(\d{2})$/.exec(hhmm);
+          if (!m) return NaN;
+          const hh = parseInt(m[1], 10);
+          const mm = parseInt(m[2], 10);
+          if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return NaN;
+          return hh * 60 + mm;
+        }
+
+        function isValidEmail(email) {
+          // Minimal sanity check (not RFC exhaustive)
+          return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+        }
+
+        function clearErrors() {
+          ["date", "start_time", "end_time", "name", "notify_email"].forEach((k) => {
+            $(`err_${k}`).textContent = "";
+          });
+          setHidden(submitError, true);
+          submitError.textContent = "";
+        }
+
+        function setFieldError(field, msg) {
+          $(`err_${field}`).textContent = msg;
+        }
+
+        function getFormPayload() {
+          const date = $("date").value;
+          const start_time = normalizeTime($("start_time").value);
+          const end_time = normalizeTime($("end_time").value);
+          const name = $("name").value.trim();
+          const notify_email = $("notify_email").value.trim();
+
+          return {
+            date,
+            start_time,
+            end_time,
+            name,
+            notify: { email: notify_email },
+          };
+        }
+
+        function validatePayload(payload) {
+          clearErrors();
+          let ok = true;
+
+          if (!payload.date) {
+            setFieldError("date", "Date is required.");
+            ok = false;
+          }
+          if (!payload.start_time) {
+            setFieldError("start_time", "Start time is required.");
+            ok = false;
+          }
+          if (!payload.end_time) {
+            setFieldError("end_time", "End time is required.");
+            ok = false;
+          }
+          if (!payload.name) {
+            setFieldError("name", "Name is required.");
+            ok = false;
+          }
+          if (!payload.notify || !payload.notify.email) {
+            setFieldError("notify_email", "Notification email is required.");
+            ok = false;
+          } else if (!isValidEmail(payload.notify.email)) {
+            setFieldError("notify_email", "Enter a valid email address.");
+            ok = false;
+          }
+
+          const sm = toMinutes(payload.start_time);
+          const em = toMinutes(payload.end_time);
+          if (Number.isFinite(sm) && Number.isFinite(em)) {
+            if (em <= sm) {
+              setFieldError("end_time", "End time must be after start time.");
+              ok = false;
             }
+          } else if (payload.start_time || payload.end_time) {
+            // If user typed something odd
+            if (!Number.isFinite(sm)) setFieldError("start_time", "Invalid time format.");
+            if (!Number.isFinite(em)) setFieldError("end_time", "Invalid time format.");
+            ok = false;
+          }
+
+          return ok;
         }
 
-        async function verRed() {
-            const output = document.getElementById('output');
-            const meta = document.getElementById('meta');
-            const network = document.getElementById('network');
-            output.textContent = '';
-            output.classList.remove('error');
-            network.innerHTML = 'Cargando...';
-            meta.textContent = '';
+        function setInFlight(v) {
+          inFlight = v;
+          submitBtn.disabled = v;
+          retryBtn.disabled = v;
+          submitBtn.textContent = v ? "Requesting..." : "Request booking";
+        }
 
+        function saveState(apiBase, correlationId, payload) {
+          if (apiBase !== null && apiBase !== undefined) localStorage.setItem(LS_LAST_API_BASE, apiBase);
+          if (correlationId) localStorage.setItem(LS_CORRELATION, correlationId);
+          if (payload) localStorage.setItem(LS_LAST_PAYLOAD, JSON.stringify(payload));
+        }
+
+        function loadState() {
+          const correlationId = localStorage.getItem(LS_CORRELATION) || "";
+          const payloadRaw = localStorage.getItem(LS_LAST_PAYLOAD) || "";
+          let payload = null;
+          try {
+            payload = payloadRaw ? JSON.parse(payloadRaw) : null;
+          } catch (_) {
+            payload = null;
+          }
+          return { correlationId, payload };
+        }
+
+        function renderAck(correlationId) {
+          if (!correlationId) return;
+          correlationIdText.textContent = correlationId;
+          setHidden(ackCard, false);
+        }
+
+        function setStatusPill(kind, text) {
+          statusPill.className = "pill";
+          if (kind === "ok") statusPill.classList.add("ok");
+          if (kind === "warn") statusPill.classList.add("warn");
+          if (kind === "bad") statusPill.classList.add("bad");
+          statusPill.textContent = text;
+        }
+
+        function stopPolling() {
+          if (pollingTimer) {
+            clearInterval(pollingTimer);
+            pollingTimer = null;
+          }
+        }
+
+        function startPolling(apiBase, correlationId) {
+          if (!correlationId) return;
+          stopPolling();
+
+          const url = `${apiBase}/internal/appointments/status?correlation_id=${encodeURIComponent(
+            correlationId
+          )}`;
+          pollingUrlText.textContent = url;
+          setHidden(statusCard, false);
+
+          const pollOnce = async () => {
             try {
-                const response = await fetch('/network');
-                if (!response.ok) {
-                    throw new Error(`Error HTTP: ${response.status} ${response.statusText}`);
-                }
-                const data = await response.json();
+              const res = await fetch(url, { method: "GET" });
+              const text = await res.text();
+              let data = null;
+              try {
+                data = text ? JSON.parse(text) : null;
+              } catch (_) {
+                data = { detail: "Invalid JSON from status endpoint", raw: text };
+              }
 
-                meta.textContent = `peer_id local: ${data.local_peer_id || '-'} | role: ${data.role || '-'} | listen: ${data.listen || '-'} | actualizado_ms: ${data.updated_at_ms || '-'}`;
+              if (!res.ok) {
+                // Treat non-2xx as failed-ish but show payload for debugging
+                renderStatus("failed", {
+                  detail: data && data.detail ? data.detail : `HTTP ${res.status} ${res.statusText}`,
+                  response: data,
+                });
+                return;
+              }
 
-                const bootstrap = Array.isArray(data.bootstrap_peers) ? data.bootstrap_peers : [];
-                const peersMap = data.peers && typeof data.peers === 'object' ? data.peers : {};
-                const peers = Object.values(peersMap);
-
-                const bootstrapRows = bootstrap.map(bp => `
-                    <tr>
-                        <td>${pill(!!bp.connected)}</td>
-                        <td><code>${esc(bp.peer_id || '-')}</code></td>
-                        <td><code>${esc(bp.multiaddr || '-')}</code></td>
-                    </tr>
-                `).join('');
-
-                const peerRows = peers.map(p => {
-                    const via = Array.isArray(p.discovered_via) ? p.discovered_via.join(', ') : (p.discovered_via ? String(p.discovered_via) : '');
-                    const rtt = (p.last_rtt_ms === null || p.last_rtt_ms === undefined) ? '-' : `${p.last_rtt_ms} ms`;
-                    return `
-                        <tr>
-                            <td>${pill(!!p.connected)}</td>
-                            <td><code>${esc(p.peer_id || '-')}</code></td>
-                            <td>${esc(via || '-')}</td>
-                            <td>${esc(rtt)}</td>
-                        </tr>
-                    `;
-                }).join('');
-
-                network.innerHTML = `
-                    <h2>Bootstrap peers</h2>
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Estado</th>
-                                <th>PeerId</th>
-                                <th>Multiaddr</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${bootstrapRows || '<tr><td colspan="3">Sin bootstrap peers configurados</td></tr>'}
-                        </tbody>
-                    </table>
-
-                    <h2>Peers (descubiertos/conectados)</h2>
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Estado</th>
-                                <th>PeerId</th>
-                                <th>Descubierto vía</th>
-                                <th>RTT</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${peerRows || '<tr><td colspan="4">Aún no hay peers descubiertos</td></tr>'}
-                        </tbody>
-                    </table>
-                `;
-            } catch (error) {
-                network.innerHTML = `<div class="error">Error: ${esc(error.message)}</div>`;
+              renderStatus("auto", data);
+            } catch (e) {
+              // Network error: do not wipe correlation id, just show it
+              renderStatus("queued", { status: "queued", note: "Network error polling status", error: String(e) });
             }
+          };
+
+          // Poll every 3 seconds (within 2–5s requirement)
+          pollingTimer = setInterval(pollOnce, 3000);
+          pollOnce();
         }
+
+        function inferUiStatus(data) {
+          if (!data || typeof data !== "object") return { state: "queued", kind: "warn", label: "status: queued" };
+
+          // Negative: { detail: "No hay disponibilidad..." }
+          if (typeof data.detail === "string" && data.detail.trim()) {
+            return { state: "failed", kind: "bad", label: "status: failed", detail: data.detail };
+          }
+
+          // Positive: { slot_id: "...", status: "booked", ... }
+          if (data.status === "booked" || typeof data.slot_id === "string") {
+            return { state: "confirmed", kind: "ok", label: "status: confirmed" };
+          }
+
+          // Internal progress states
+          if (data.status === "queued") return { state: "queued", kind: "warn", label: "status: queued" };
+          if (data.status === "sent") return { state: "sent", kind: "warn", label: "status: sent" };
+          if (data.status === "confirmed") return { state: "confirmed", kind: "ok", label: "status: confirmed" };
+          if (data.status === "failed") {
+            return { state: "failed", kind: "bad", label: "status: failed", detail: data.error || "Failed" };
+          }
+
+          return { state: "queued", kind: "warn", label: "status: queued" };
+        }
+
+        function renderStatus(mode, data) {
+          const { correlationId } = loadState();
+          setHidden(statusCard, false);
+          setHidden(statusError, true);
+          statusError.textContent = "";
+          setHidden(confirmedNote, true);
+          setHidden(statusJson, true);
+
+          let inferred = null;
+          if (mode === "auto") inferred = inferUiStatus(data);
+          else if (mode === "failed") inferred = { state: "failed", kind: "bad", label: "status: failed" };
+          else if (mode === "sent") inferred = { state: "sent", kind: "warn", label: "status: sent" };
+          else if (mode === "confirmed") inferred = { state: "confirmed", kind: "ok", label: "status: confirmed" };
+          else inferred = { state: "queued", kind: "warn", label: "status: queued" };
+
+          setStatusPill(inferred.kind, inferred.label);
+
+          // Retry visible when failed and we have correlation_id + payload
+          const { payload } = loadState();
+          const canRetry = inferred.state === "failed" && !!correlationId && !!payload;
+          setHidden(retryBtn, !canRetry);
+
+          if (inferred.state === "failed") {
+            const msg =
+              (data && data.detail) ||
+              (data && data.error) ||
+              inferred.detail ||
+              "Request failed. Please retry.";
+            statusError.textContent = msg;
+            setHidden(statusError, false);
+          }
+
+          if (inferred.state === "confirmed") {
+            setHidden(confirmedNote, false);
+            statusJson.textContent = JSON.stringify(data, null, 2);
+            setHidden(statusJson, false);
+          }
+
+          // Always show raw JSON when we have something non-trivial (helps debugging)
+          if (data && typeof data === "object" && inferred.state !== "confirmed") {
+            statusJson.textContent = JSON.stringify(data, null, 2);
+            setHidden(statusJson, false);
+          }
+        }
+
+        async function submitBooking({ apiBase, payload, correlationIdForIdempotency }) {
+          const url = `${apiBase}/appointments/book-range`;
+          setHidden(submitError, true);
+          submitError.textContent = "";
+
+          const headers = {
+            "Content-Type": "application/json",
+          };
+          if (correlationIdForIdempotency) {
+            headers["Idempotency-Key"] = correlationIdForIdempotency;
+          }
+
+          const res = await fetch(url, {
+            method: "POST",
+            headers,
+            body: JSON.stringify(payload),
+          });
+
+          const text = await res.text();
+          let data = null;
+          try {
+            data = text ? JSON.parse(text) : null;
+          } catch (_) {
+            data = { detail: "Invalid JSON from ACK endpoint", raw: text };
+          }
+
+          if (!res.ok) {
+            const msg =
+              (data && data.detail) ||
+              (data && data.error) ||
+              `HTTP ${res.status} ${res.statusText}`;
+            throw new Error(msg);
+          }
+
+          // Expect ACK: { correlation_id, status: "queued" }
+          if (!data || typeof data.correlation_id !== "string" || !data.correlation_id) {
+            throw new Error("Internal API did not return correlation_id.");
+          }
+          return data;
+        }
+
+        async function onSubmit(e) {
+          e.preventDefault();
+          if (inFlight) return;
+
+          const apiBase = getApiBase();
+          apiMeta.textContent = `API_BASE: ${apiBase || "(same origin)"}`;
+          saveState(apiBase, null, null);
+
+          const payload = getFormPayload();
+
+          // Normalize times back into the inputs too (so user sees HH:MM)
+          $("start_time").value = payload.start_time;
+          $("end_time").value = payload.end_time;
+
+          if (!validatePayload(payload)) return;
+
+          setInFlight(true);
+          try {
+            // Save payload so refresh and retry work
+            saveState(apiBase, null, payload);
+
+            const ack = await submitBooking({ apiBase, payload });
+            saveState(apiBase, ack.correlation_id, payload);
+            renderAck(ack.correlation_id);
+            startPolling(apiBase, ack.correlation_id);
+          } catch (err) {
+            const msg = err && err.message ? err.message : String(err);
+            submitError.textContent =
+              navigator.onLine === false
+                ? `Offline: ${msg}. Try again when you’re online.`
+                : msg;
+            setHidden(submitError, false);
+          } finally {
+            setInFlight(false);
+          }
+        }
+
+        async function onRetry() {
+          if (inFlight) return;
+          const apiBase = getApiBase();
+          const { correlationId, payload } = loadState();
+          if (!correlationId || !payload) return;
+
+          setInFlight(true);
+          try {
+            const ack = await submitBooking({
+              apiBase,
+              payload,
+              correlationIdForIdempotency: correlationId,
+            });
+            // If server returns same or new correlation_id, store it; prefer ACK’s value
+            const cid = ack.correlation_id || correlationId;
+            saveState(apiBase, cid, payload);
+            renderAck(cid);
+            startPolling(apiBase, cid);
+            setHidden(submitError, true);
+          } catch (err) {
+            const msg = err && err.message ? err.message : String(err);
+            submitError.textContent =
+              navigator.onLine === false
+                ? `Offline: ${msg}. Try again when you’re online.`
+                : msg;
+            setHidden(submitError, false);
+          } finally {
+            setInFlight(false);
+          }
+        }
+
+        function restoreUiFromLocalStorage() {
+          const apiBase = getApiBase();
+          apiMeta.textContent = `API_BASE: ${apiBase || "(same origin)"}`;
+
+          const { correlationId, payload } = loadState();
+          if (payload && typeof payload === "object") {
+            // Restore form values (best-effort)
+            if (payload.date) $("date").value = payload.date;
+            if (payload.name) $("name").value = payload.name;
+            if (payload.start_time) $("start_time").value = payload.start_time;
+            if (payload.end_time) $("end_time").value = payload.end_time;
+            if (payload.notify && payload.notify.email) $("notify_email").value = payload.notify.email;
+          }
+
+          if (correlationId) {
+            renderAck(correlationId);
+            startPolling(apiBase, correlationId);
+          }
+        }
+
+        // Tab switching
+        const tabs = document.querySelectorAll(".tab");
+        const tabContents = document.querySelectorAll(".tabContent");
+        tabs.forEach((tab) => {
+          tab.addEventListener("click", () => {
+            const targetTab = tab.dataset.tab;
+            tabs.forEach((t) => t.classList.remove("active"));
+            tabContents.forEach((tc) => tc.classList.remove("active"));
+            tab.classList.add("active");
+            $(`tab${targetTab.charAt(0).toUpperCase() + targetTab.slice(1)}`).classList.add("active");
+          });
+        });
+
+        // Status/Network fetch helpers
+        async function fetchStatus() {
+          try {
+            const res = await fetch("/status");
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            return await res.json();
+          } catch (e) {
+            return { error: String(e) };
+          }
+        }
+
+        async function fetchNetwork() {
+          try {
+            const res = await fetch("/network");
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            return await res.json();
+          } catch (e) {
+            return { error: String(e) };
+          }
+        }
+
+        function renderPill(connected) {
+          return connected
+            ? '<span class="pill ok">conectado</span>'
+            : '<span class="pill bad">no conectado</span>';
+        }
+
+        function renderNodeStatus(statusData, networkData) {
+          const content = $("nodeStatusContent");
+          if (statusData.error) {
+            content.innerHTML = `<div class="errorBox">Error loading status: ${esc(statusData.error)}</div>`;
+            return;
+          }
+
+          const role = networkData.role || "-";
+          const peerId = networkData.local_peer_id || "-";
+          const listen = networkData.listen || "-";
+          const updatedAt = networkData.updated_at_ms ? new Date(networkData.updated_at_ms).toISOString() : "-";
+
+          let html = `
+            <div class="metaLine"><strong>Role:</strong> <code>${esc(role)}</code></div>
+            <div class="metaLine"><strong>Local Peer ID:</strong> <code>${esc(peerId)}</code></div>
+            <div class="metaLine"><strong>Listen:</strong> <code>${esc(listen)}</code></div>
+            <div class="metaLine"><strong>Last updated:</strong> ${esc(updatedAt)}</div>
+            <div style="margin-top: 14px; padding-top: 14px; border-top: 1px solid #e6e6e6;">
+              <div class="metaLine"><strong>Internal API Status:</strong></div>
+              <pre>${esc(JSON.stringify(statusData, null, 2))}</pre>
+            </div>
+          `;
+          content.innerHTML = html;
+        }
+
+        function renderNetwork(data) {
+          const content = $("networkContent");
+          if (data.error) {
+            content.innerHTML = `<div class="errorBox">Error loading network: ${esc(data.error)}</div>`;
+            return;
+          }
+
+          const role = (data.role || "client").toLowerCase();
+          const bootstrapPeers = Array.isArray(data.bootstrap_peers) ? data.bootstrap_peers : [];
+          const peersMap = data.peers && typeof data.peers === "object" ? data.peers : {};
+          const peers = Object.values(peersMap);
+
+          // Client: show discreet connected count only
+          if (role === "client") {
+            const connectedCount = peers.filter((p) => p.connected === true).length;
+            const bootstrapConnectedCount = bootstrapPeers.filter((bp) => bp.connected === true).length;
+            const totalConnected = connectedCount + bootstrapConnectedCount;
+
+            let html = `
+              <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                <div class="pill ${totalConnected > 0 ? "ok" : "bad"}">
+                  Connected: ${totalConnected}
+                </div>
+                ${bootstrapConnectedCount > 0 ? `<div class="mutedLine">(${bootstrapConnectedCount} bootstrap, ${connectedCount} peers)</div>` : ""}
+              </div>
+            `;
+            content.innerHTML = html;
+            return;
+          }
+
+          // Gateway: show explicit tables
+          const bootstrapRows = bootstrapPeers.length > 0
+            ? bootstrapPeers
+                .map(
+                  (bp) => `
+              <tr>
+                <td>${renderPill(!!bp.connected)}</td>
+                <td><code>${esc(bp.peer_id || "-")}</code></td>
+                <td><code>${esc(bp.multiaddr || "-")}</code></td>
+              </tr>
+            `
+                )
+                .join("")
+            : '<tr><td colspan="3">Sin bootstrap peers configurados</td></tr>';
+
+          const peerRows = peers.length > 0
+            ? peers
+                .map((p) => {
+                  const via = Array.isArray(p.discovered_via)
+                    ? p.discovered_via.join(", ")
+                    : p.discovered_via
+                    ? String(p.discovered_via)
+                    : "-";
+                  const rtt = p.last_rtt_ms !== null && p.last_rtt_ms !== undefined ? `${p.last_rtt_ms} ms` : "-";
+                  return `
+              <tr>
+                <td>${renderPill(!!p.connected)}</td>
+                <td><code>${esc(p.peer_id || "-")}</code></td>
+                <td>${esc(via)}</td>
+                <td>${esc(rtt)}</td>
+              </tr>
+            `;
+                })
+                .join("")
+            : '<tr><td colspan="4">Aún no hay peers descubiertos</td></tr>';
+
+          let html = `
+            <h3 style="margin: 16px 0 8px 0; font-size: 14px; font-weight: 500;">Bootstrap Peers</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>Estado</th>
+                  <th>Peer ID</th>
+                  <th>Multiaddr</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${bootstrapRows}
+              </tbody>
+            </table>
+
+            <h3 style="margin: 16px 0 8px 0; font-size: 14px; font-weight: 500;">Peers (Descubiertos/Conectados)</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>Estado</th>
+                  <th>Peer ID</th>
+                  <th>Descubierto vía</th>
+                  <th>RTT</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${peerRows}
+              </tbody>
+            </table>
+          `;
+          content.innerHTML = html;
+        }
+
+        async function refreshStatusAndNetwork() {
+          const statusBtn = $("refreshStatusBtn");
+          const networkBtn = $("refreshNetworkBtn");
+          statusBtn.disabled = true;
+          networkBtn.disabled = true;
+          statusBtn.textContent = "Refreshing...";
+          networkBtn.textContent = "Refreshing...";
+
+          try {
+            const [statusData, networkData] = await Promise.all([fetchStatus(), fetchNetwork()]);
+            renderNodeStatus(statusData, networkData);
+            renderNetwork(networkData);
+          } catch (e) {
+            $("nodeStatusContent").innerHTML = `<div class="errorBox">Error: ${esc(String(e))}</div>`;
+            $("networkContent").innerHTML = `<div class="errorBox">Error: ${esc(String(e))}</div>`;
+          } finally {
+            statusBtn.disabled = false;
+            networkBtn.disabled = false;
+            statusBtn.textContent = "Refresh";
+            networkBtn.textContent = "Refresh";
+          }
+        }
+
+        $("refreshStatusBtn").addEventListener("click", refreshStatusAndNetwork);
+        $("refreshNetworkBtn").addEventListener("click", refreshStatusAndNetwork);
+
+        // Wire up events
+        form.addEventListener("submit", onSubmit);
+        retryBtn.addEventListener("click", onRetry);
+
+        window.addEventListener("online", updateOfflineBanner);
+        window.addEventListener("offline", updateOfflineBanner);
+        updateOfflineBanner();
+
+        restoreUiFromLocalStorage();
+      })();
     </script>
-</body>
+  </body>
 </html>

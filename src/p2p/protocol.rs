@@ -16,11 +16,36 @@ pub struct Op {
     pub created_at_ms: i64,
 }
 
+// Booking message types
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BookingData {
+    pub date: String,           // "YYYY-MM-DD"
+    pub start_time: String,     // "H:MM" or "HH:MM"
+    pub end_time: String,       // "H:MM" or "HH:MM"
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NotifyData {
+    pub email: String,
+    pub locale: Option<String>,
+    pub timezone: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Msg {
     OpSubmit { op: Op },
     OpAck { op_id: String, ok: bool, msg: String },
     Heartbeat { role: String },
+    SubmitBooking {
+        correlation_id: String,
+        booking: BookingData,
+        notify: NotifyData,
+    },
+    BookingAck {
+        correlation_id: String,
+        status: String,  // "queued"
+    },
 }
 
 // --- Codec ---
