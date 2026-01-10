@@ -26,7 +26,7 @@ enable_relay = false         # NAT traversal via relay (default: false)
 discovery_timeout_secs = 60  # Timeout for initial peer discovery
 
 # Broker configuration (only for Gateway role)
-# central_api_url = "https://d56f967f72a5.ngrok-free.app"  # Central API base URL
+# central_api_url = "https://3eabd7287c50.ngrok-free.app"  # Central API base URL
 # db_path = "./data/broker.db"                             # Path to sled database
 # max_retry_attempts = 10                                  # Max retries for failed jobs
 # initial_backoff_ms = 1000                                # Initial backoff delay in milliseconds
