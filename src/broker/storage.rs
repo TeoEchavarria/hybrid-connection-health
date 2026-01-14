@@ -9,6 +9,16 @@ pub struct BrokerStorage {
     notification_outbox: sled::Tree,
 }
 
+/// Parameters for updating job state
+pub struct JobStateUpdate<'a> {
+    pub state: JobState,
+    pub attempts: Option<u32>,
+    pub next_attempt_at: Option<i64>,
+    pub last_error: Option<&'a str>,
+    pub http_status: Option<u16>,
+    pub central_response_json: Option<&'a str>,
+}
+
 impl BrokerStorage {
     pub fn new(db_path: &str) -> Result<Self> {
         // Ensure parent directory exists
@@ -80,32 +90,27 @@ impl BrokerStorage {
     pub fn update_job_state(
         &self,
         correlation_id: &str,
-        state: JobState,
-        attempts: Option<u32>,
-        next_attempt_at: Option<i64>,
-        last_error: Option<&str>,
-        http_status: Option<u16>,
-        central_response_json: Option<&str>,
+        update: JobStateUpdate,
     ) -> Result<()> {
         let mut job = self
             .get_booking_job(correlation_id)?
             .ok_or_else(|| anyhow::anyhow!("Job not found: {}", correlation_id))?;
 
         // Update fields
-        job.state = state;
-        if let Some(att) = attempts {
+        job.state = update.state;
+        if let Some(att) = update.attempts {
             job.attempts = att;
         }
-        if let Some(next) = next_attempt_at {
+        if let Some(next) = update.next_attempt_at {
             job.next_attempt_at = next;
         }
-        if let Some(err) = last_error {
+        if let Some(err) = update.last_error {
             job.last_error = Some(err.to_string());
         }
-        if let Some(status) = http_status {
+        if let Some(status) = update.http_status {
             job.http_status = Some(status);
         }
-        if let Some(resp) = central_response_json {
+        if let Some(resp) = update.central_response_json {
             job.central_response_json = Some(resp.to_string());
         }
         job.updated_at = chrono::Utc::now().timestamp_millis();

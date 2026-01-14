@@ -1,4 +1,4 @@
-use crate::broker::storage::BrokerStorage;
+use crate::broker::storage::{BrokerStorage, JobStateUpdate};
 use crate::broker::types::{BookingJob, JobState, NotificationRecord, NotificationState};
 use crate::config::Config;
 use anyhow::{Context, Result};
@@ -86,12 +86,14 @@ impl ForwarderWorker {
         self.storage
             .update_job_state(
                 &correlation_id,
-                JobState::Sending,
-                None,
-                None,
-                None,
-                None,
-                None,
+                JobStateUpdate {
+                    state: JobState::Sending,
+                    attempts: None,
+                    next_attempt_at: None,
+                    last_error: None,
+                    http_status: None,
+                    central_response_json: None,
+                },
             )
             .context("Failed to update job state to Sending")?;
 
@@ -140,12 +142,14 @@ impl ForwarderWorker {
                             self.storage
                                 .update_job_state(
                                     &correlation_id,
-                                    JobState::Confirmed,
-                                    None,
-                                    None,
-                                    None,
-                                    Some(status_code),
-                                    Some(&response_body),
+                                    JobStateUpdate {
+                                        state: JobState::Confirmed,
+                                        attempts: None,
+                                        next_attempt_at: None,
+                                        last_error: None,
+                                        http_status: Some(status_code),
+                                        central_response_json: Some(&response_body),
+                                    },
                                 )
                                 .context("Failed to update job to Confirmed")?;
 
@@ -162,12 +166,14 @@ impl ForwarderWorker {
                             self.storage
                                 .update_job_state(
                                     &correlation_id,
-                                    JobState::Failed,
-                                    None,
-                                    None,
-                                    Some(&format!("HTTP {}: {}", status_code, response_body)),
-                                    Some(status_code),
-                                    Some(&response_body),
+                                    JobStateUpdate {
+                                        state: JobState::Failed,
+                                        attempts: None,
+                                        next_attempt_at: None,
+                                        last_error: Some(&format!("HTTP {}: {}", status_code, response_body)),
+                                        http_status: Some(status_code),
+                                        central_response_json: Some(&response_body),
+                                    },
                                 )
                                 .context("Failed to update job to Failed")?;
                         }
@@ -217,12 +223,14 @@ impl ForwarderWorker {
             self.storage
                 .update_job_state(
                     correlation_id,
-                    JobState::Failed,
-                    Some(new_attempts),
-                    None,
-                    Some(&format!("Max retries exceeded: {}", error)),
-                    None,
-                    None,
+                    JobStateUpdate {
+                        state: JobState::Failed,
+                        attempts: Some(new_attempts),
+                        next_attempt_at: None,
+                        last_error: Some(&format!("Max retries exceeded: {}", error)),
+                        http_status: None,
+                        central_response_json: None,
+                    },
                 )
                 .context("Failed to update job to Failed")?;
 
@@ -244,12 +252,14 @@ impl ForwarderWorker {
         self.storage
             .update_job_state(
                 correlation_id,
-                JobState::Queued,
-                Some(new_attempts),
-                Some(next_attempt_at),
-                Some(error),
-                None,
-                None,
+                JobStateUpdate {
+                    state: JobState::Queued,
+                    attempts: Some(new_attempts),
+                    next_attempt_at: Some(next_attempt_at),
+                    last_error: Some(error),
+                    http_status: None,
+                    central_response_json: None,
+                },
             )
             .context("Failed to update job for retry")?;
 

@@ -75,8 +75,10 @@ pub async fn build_swarm(config: &Config) -> Result<Swarm<NodeBehaviour>> {
 
     // mDNS for LAN discovery
     let mdns = if config.enable_mdns {
-        let mut mdns_config = mdns::Config::default();
-        mdns_config.query_interval = Duration::from_secs(5);
+        let mdns_config = mdns::Config {
+            query_interval: Duration::from_secs(5),
+            ..Default::default()
+        };
         mdns::tokio::Behaviour::new(mdns_config, peer_id)?
     } else {
         // Create disabled mDNS (will still be in the behaviour, just won't discover)
@@ -566,23 +568,17 @@ pub async fn run_test_submission(mut swarm: Swarm<NodeBehaviour>, dial_addr: Str
                     }
                 }
             }
-             SwarmEvent::Behaviour(NodeBehaviourEvent::RequestResponse(request_response::Event::Message { peer, message, .. })) => {
-                match message {
-                     request_response::Message::Response { response, .. } => {
-                         match response {
-                             Msg::OpAck { op_id, ok, msg } => {
-                                 info!("Test: Received ACK from {}: op_id={} ok={} msg={}", peer, op_id, ok, msg);
-                                 if op_id == expected_op_id && ok {
-                                     info!("Test PASSED: Valid ACK received.");
-                                     return Ok(());
-                                 } else {
-                                     anyhow::bail!("Test FAILED: Invalid ACK (id mismatch or ok=false)");
-                                 }
-                             }
-                             _ => {}
-                         }
-                    }
-                    _ => {}
+             SwarmEvent::Behaviour(NodeBehaviourEvent::RequestResponse(request_response::Event::Message { 
+                peer, 
+                message: request_response::Message::Response { response: Msg::OpAck { op_id, ok, msg }, .. }, 
+                .. 
+             })) => {
+                info!("Test: Received ACK from {}: op_id={} ok={} msg={}", peer, op_id, ok, msg);
+                if op_id == expected_op_id && ok {
+                    info!("Test PASSED: Valid ACK received.");
+                    return Ok(());
+                } else {
+                    anyhow::bail!("Test FAILED: Invalid ACK (id mismatch or ok=false)");
                 }
              }
              SwarmEvent::Behaviour(NodeBehaviourEvent::RequestResponse(request_response::Event::OutboundFailure { error, .. })) => {
